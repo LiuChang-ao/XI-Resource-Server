@@ -8,4 +8,4 @@ require (
 	google.golang.org/protobuf v1.31.0
 )
 
-replace github.com/xiresource/proto/control => ../proto
+replace github.com/xiresource/proto => ../proto
