@@ -65,6 +65,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 build-cloud
 powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 build-agent
 ```
 
+编译完成后，可执行文件位于 `bin\agent.exe`。
+
+**详细部署说明：** 请参考 [agent/DEPLOYMENT.md](agent/DEPLOYMENT.md) 了解如何编译和运行 agent。
+
 ### Linux/macOS
 
 1. Generate protobuf code:
@@ -99,12 +103,24 @@ The server will start with:
 
 ### Start Agent
 
-In a separate terminal:
+**使用编译好的可执行文件 (推荐):**
+```powershell
+.\bin\agent.exe -server ws://localhost:8080/wss -agent-id test-agent-001 -agent-token dev-token
+```
 
+**或使用 go run (开发模式):**
 ```bash
 cd agent
 go run cmd/agent/main.go -server ws://localhost:8080/wss -agent-id test-agent-001 -agent-token dev-token
 ```
+
+**Agent 命令行参数:**
+- `-server`: 服务器 WebSocket URL (默认: `ws://localhost:8080/wss`)
+- `-agent-id`: Agent ID (必需，唯一标识符)
+- `-agent-token`: Agent 认证令牌 (默认: `dev-token`)
+- `-max-concurrency`: 最大并发任务数 (默认: `1`)
+
+**详细说明：** 请参考 [agent/DEPLOYMENT.md](agent/DEPLOYMENT.md) 了解完整的部署和运行指南。
 
 ## E2E Test
 
