@@ -30,6 +30,9 @@ vendor/
 .DS_Store
 Thumbs.db
 
+# Database files
+*.db
+
 # Build artifacts
 *.pb.go
 !proto/control/control.pb.go
