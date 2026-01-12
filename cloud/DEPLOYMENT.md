@@ -85,6 +85,9 @@ protoc-gen-go --version
 ### 在 Linux 环境下编译
 
 ```bash
+# 确保在项目根目录
+cd ~/XI-Resource-Server
+
 # 步骤 1: 生成 protobuf 代码
 cd proto
 protoc --go_out=. --go_opt=module=github.com/xiresource/proto control.proto
@@ -95,12 +98,22 @@ cd proto
 go mod tidy
 cd ..
 
-# 步骤 3: 更新 cloud 模块依赖
+# 步骤 3: 验证 cloud/go.mod 中的 replace 指令
+# 确保 cloud/go.mod 包含: replace github.com/xiresource/proto => ../proto
+grep "replace github.com/xiresource/proto" cloud/go.mod
+
+# 步骤 4: 更新 cloud 模块依赖（从项目根目录执行，确保相对路径正确）
 cd cloud
 go mod tidy
 cd ..
 
-# 步骤 4: 编译 cloud server (生成二进制文件)
+# 步骤 5: 验证依赖是否正确解析（可选）
+cd cloud
+go list -m github.com/xiresource/proto/control
+# 应该显示: github.com/xiresource/proto/control (replaced by ../proto)
+cd ..
+
+# 步骤 6: 编译 cloud server (生成二进制文件)
 cd cloud
 go build -o ../bin/server-linux-amd64 ./cmd/server
 cd ..
@@ -110,6 +123,46 @@ cd ..
 1. proto 代码已生成（`proto/control/control.pb.go` 存在）
 2. 已运行 `go mod tidy` 更新依赖
 3. 如果使用 Go 代理，可以设置：`export GOPROXY=https://goproxy.cn,direct`
+
+**如果 `go mod tidy` 卡死在下载 `github.com/xiresource/proto/control`：**
+
+1. **检查 replace 指令**：确保 `cloud/go.mod` 中有正确的 replace 指令：
+   ```bash
+   # 在 cloud/go.mod 中应该有以下内容：
+   replace github.com/xiresource/proto => ../proto
+   ```
+
+2. **确保在正确的目录下执行**：必须在项目根目录或 cloud 目录下执行命令，确保相对路径 `../proto` 能正确解析：
+   ```bash
+   # 从项目根目录执行
+   cd ~/XI-Resource-Server/cloud
+   go mod tidy
+   ```
+
+3. **清除 Go 模块缓存**（如果问题持续）：
+   ```bash
+   go clean -modcache
+   cd proto
+   go mod tidy
+   cd ../cloud
+   go mod tidy
+   ```
+
+4. **使用离线模式**（如果网络有问题）：
+   ```bash
+   export GOPROXY=direct
+   export GOSUMDB=off
+   cd cloud
+   go mod tidy
+   ```
+
+5. **验证 proto 模块**：
+   ```bash
+   # 检查 proto 模块是否正确
+   cd proto
+   go list -m
+   # 应该显示: github.com/xiresource/proto
+   ```
 
 ### 跨平台编译 (在其他系统上编译 Linux 版本)
 

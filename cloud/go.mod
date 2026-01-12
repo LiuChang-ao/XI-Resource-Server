@@ -25,4 +25,5 @@ require (
 	golang.org/x/net v0.17.0 // indirect
 )
 
+// Replace local proto module (Go automatically handles subpaths)
 replace github.com/xiresource/proto => ../proto
