@@ -1,0 +1,65 @@
+---
+alwaysApply: true
+---
+# Architecture Rules (MUST FOLLOW)
+
+## Components
+### Cloud (cloud/)
+- HTTP API: job creation, status query, admin endpoints.
+- WSS Gateway: agent connections, message routing, heartbeat tracking.
+- Scheduler: assigns jobs from Redis queue to eligible agents.
+- Persistence: MySQL (preferred), Redis for queue/lease/heartbeats.
+
+### Agent (agent/)
+- Maintains outbound WSS connection to cloud.
+- Pulls jobs, renews lease, runs compute, uploads results to OSS.
+- Runs as Windows Service (must be resilient to reboot/disconnect).
+- Must support: pause/resume accepting new jobs.
+
+## Control plane vs data plane
+- Control plane messages MUST be small (JSON/protobuf).
+- Data plane for input/output files MUST use OSS presigned URLs or STS.
+- Cloud server MUST NOT accept file uploads as body payload for job execution.
+- If a feature requires file transfer, implement it via OSS keys + presigned URLs.
+
+## Message Protocol (proto/)
+- Use Protobuf with a top-level Envelope to allow evolution:
+  - Envelope { oneof payload = Register/Heartbeat/RequestJob/JobAssigned/... }
+- All messages include:
+  - agent_id (if agent-originated)
+  - request_id (UUID) for tracing
+  - timestamp (unix ms)
+- Server must be tolerant of unknown fields (forward compatibility).
+
+## Job Model
+- job_id: UUID
+- attempt_id: int (start at 1)
+- states: PENDING, ASSIGNED, RUNNING, SUCCEEDED, FAILED, CANCELED, LOST
+- lease:
+  - lease_id: UUID
+  - lease_ttl_sec: int (default 60)
+  - renew every 20s
+- artifacts:
+  - input: OSS key(s)
+  - output: OSS key(s) under prefix `jobs/{job_id}/{attempt_id}/`
+
+## Scheduling Rules (MVP)
+- Agent requests job (pull model).
+- Assign only if agent is ONLINE and not paused and has capacity.
+- Capacity: configurable `max_concurrency` (default 1).
+- Prefer least running jobs; tie-break by most recent heartbeat.
+
+## Failure Handling (MVP)
+- If agent disconnects:
+  - keep lease running; if lease expires without renew => mark LOST.
+- Do NOT auto-retry training jobs in MVP.
+- Always ensure idempotent output paths using attempt_id.
+
+## Logging/Tracing
+- Cloud logs must include job_id, agent_id, request_id.
+- Agent logs must include job_id, lease_id and should keep last N lines for status reporting.
+
+## Forbidden patterns
+- Do not add features that require inbound connectivity to lab machines.
+- Do not proxy large files through ECS.
+- Do not store long-term OSS AK/SK on agents.

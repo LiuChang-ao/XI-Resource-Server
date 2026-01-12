@@ -1,0 +1,12 @@
+**/data/**
+**/*.pt *.ckpt *.safetensors *.bin
+**/temp/**
+**/cache/**
+**/backup/**
+**/old/**
+**/temp/**
+**/cache/**
+**/backup/**
+**/old/**
+**/runs/** 
+**/logs/**

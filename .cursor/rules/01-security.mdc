@@ -1,0 +1,54 @@
+---
+alwaysApply: true
+---
+# Security Rules (MUST FOLLOW)
+
+## Transport security
+- All HTTP and WSS MUST use TLS.
+- Use WSS on port 443 for maximum compatibility.
+- Reject plaintext WS/HTTP in production mode.
+
+## Agent Authentication (MVP -> Future)
+### MVP
+- Agent authenticates with `agent_id` + `agent_token` (pre-shared secret) via:
+  - WSS connection query/header, or first Register message.
+- Tokens must never be logged in plaintext.
+- Store token hashes server-side (bcrypt/argon2).
+
+### Future (recommended)
+- Upgrade to mTLS:
+  - per-agent client certificate, server enforces allowlist + revocation.
+
+## Authorization
+- Agent can only:
+  - request jobs
+  - renew lease for assigned jobs
+  - report status for its jobs
+- Server must validate:
+  - job_id belongs to the agent (ASSIGNED/RUNNING) before accepting renew/status.
+
+## OSS access
+- NEVER place permanent OSS AK/SK on agents.
+- Use ONE of:
+  - presigned URLs with short expiry (10-30 min), OR
+  - STS temporary credentials with least-privilege policy per job/prefix.
+- Each job should only grant:
+  - read access to `inputs/{job_id}/...` (or specified keys)
+  - write access to `jobs/{job_id}/{attempt_id}/...`
+
+## Secrets management
+- Cloud secrets live in environment variables or a secret manager.
+- Provide `.env.example` with placeholders only.
+- Agent config can include token, but must support:
+  - reading from Windows Credential Manager or encrypted file (optional later).
+  - never print token in logs.
+
+## Replay / tampering defenses (MVP)
+- Each agent->server message should include:
+  - timestamp and request_id
+- Server may reject messages with large clock skew (configurable).
+
+## Hard prohibitions
+- Do not implement any "open port on workstation" feature.
+- Do not add any "upload file to ECS then forward" logic.
+- Do not add debug endpoints without auth.

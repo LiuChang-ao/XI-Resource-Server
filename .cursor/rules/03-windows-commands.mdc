@@ -1,0 +1,17 @@
+---
+alwaysApply: true
+---
+
+# Windows-first command rules (MUST FOLLOW)
+
+- The default developer environment is Windows 11 (PowerShell).
+- Do NOT output bash-only commands (e.g. `cd &&`, `export`, `rm -rf`, `grep`, `sed`, `cat`, `lsof`, `pkill`).
+- When you need to run commands, provide PowerShell equivalents.
+- Prefer `go` commands that don't require changing directories:
+  - Use `go run ./cloud/cmd/server ...` instead of `cd cloud && go run ...`
+  - Use `go test ./...` from repo root
+- For process management on Windows:
+  - find port: `netstat -ano | findstr :8080`
+  - kill process tree: `taskkill /PID <pid> /F /T`
+- If a cross-platform script is needed, implement it in Go under `scripts/` (preferred),
+  or provide both PowerShell and bash variants explicitly labeled.

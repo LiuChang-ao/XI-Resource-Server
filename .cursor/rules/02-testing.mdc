@@ -1,0 +1,45 @@
+---
+alwaysApply: true
+---
+# Testing & Verification Rules (MUST FOLLOW)
+
+## Required test levels
+1) Unit tests (`go test ./...`) for:
+   - job state transitions
+   - lease logic (renew/expire)
+   - OSS presign generation (mocked)
+
+2) Minimal integration test (mandatory for MVP):
+   - `scripts/e2e.go` MUST exist and pass.
+   - It must prove:
+     A) agent connects and becomes ONLINE
+     B) job is created, assigned, completed
+     C) artifacts are written to object storage (use MinIO locally or real OSS via env)
+
+## Local dev environment
+- `infra/docker-compose.yml` should provide:
+  - redis
+  - mysql (optional; sqlite acceptable for MVP)
+  - minio (recommended for local OSS simulation)
+- `make test` runs unit tests.
+- `make e2e` runs integration test with docker-compose.
+
+## E2E contract (minimum)
+- Start cloud server on localhost with TLS disabled ONLY for local e2e (flag `--dev`).
+- Start agent process that connects to local server.
+- Submit a job with an input object (uploaded to MinIO).
+- Ensure:
+  - final job state = SUCCEEDED
+  - output object exists at `jobs/{job_id}/{attempt_id}/...`
+  - server never receives file bytes in request bodies (assert via handler guard / log marker).
+
+## CI readiness (optional but recommended)
+- Provide GitHub Actions workflow that runs:
+  - go test ./...
+  - docker compose up -d + make e2e
+
+## What to do when adding a feature
+- Every new message type must have:
+  - serialization test
+  - backward-compatibility sanity check (unknown fields ignored)
+- Every bug fix must include a regression test.

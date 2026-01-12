@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+package control;
+
+option go_package = "github.com/xiresource/proto/control;control";
+
+// Envelope wraps all messages for forward compatibility
+message Envelope {
+  // agent_id: Set by agent for agent-originated messages.
+  // VALIDATION RULE: If payload message also contains agent_id field, it MUST equal Envelope.agent_id.
+  // Server must reject messages where this consistency check fails (prevents cross-agent confusion).
+  string agent_id = 1;
+  string request_id = 2;    // UUID for tracing
+  int64 timestamp = 3;      // Unix milliseconds
+  
+  oneof payload {
+    Register register = 10;
+    Heartbeat heartbeat = 11;
+    RegisterAck register_ack = 12;
+    HeartbeatAck heartbeat_ack = 13;
+    RequestJob request_job = 14;
+    JobAssigned job_assigned = 15;
+    JobStatus job_status = 16;
+  }
+}
+
+// Register: Agent registers with cloud on connection
+message Register {
+  // agent_id: Must equal Envelope.agent_id if present (server validates consistency)
+  string agent_id = 1;
+  string agent_token = 2;   // Pre-shared secret (MVP)
+  string hostname = 3;
+  int32 max_concurrency = 4; // Default 1
+}
+
+// RegisterAck: Server acknowledges registration
+message RegisterAck {
+  bool success = 1;
+  string message = 2;
+  int32 heartbeat_interval_sec = 3; // How often to send heartbeat
+}
+
+// Heartbeat: Agent sends periodic heartbeat
+message Heartbeat {
+  // agent_id: Must equal Envelope.agent_id if present (server validates consistency)
+  string agent_id = 1;
+  bool paused = 2;          // Whether agent is paused
+  int32 running_jobs = 3;   // Current number of running jobs
+}
+
+// HeartbeatAck: Server acknowledges heartbeat
+message HeartbeatAck {
+  bool success = 1;
+}
+
+// JobStatusEnum: Status of a job execution
+enum JobStatusEnum {
+  JOB_STATUS_UNKNOWN = 0;
+  JOB_STATUS_ASSIGNED = 1;    // Job assigned to agent (optional, for M2+)
+  JOB_STATUS_RUNNING = 2;
+  JOB_STATUS_SUCCEEDED = 3;
+  JOB_STATUS_FAILED = 4;
+  JOB_STATUS_CANCELED = 5;    // Job canceled by user/admin
+  JOB_STATUS_LOST = 6;        // Job lost due to agent disconnect/lease expiry (M2+)
+}
+
+// STSCreds: STS temporary credentials for OSS access
+message STSCreds {
+  string access_key_id = 1;
+  string access_key_secret = 2;
+  string security_token = 3;
+  string endpoint = 4;       // OSS endpoint (e.g., oss-cn-hangzhou.aliyuncs.com)
+  string bucket = 5;         // Bucket name
+  int64 expires_at_ms = 6;  // Expiration timestamp (Unix milliseconds) - for agent to check validity
+}
+
+// OSSAccess: OSS access credentials (presigned URL or STS)
+// Exactly one of presigned_url or sts must be set.
+message OSSAccess {
+  oneof auth {
+    string presigned_url = 1;  // Presigned URL for direct access (GET for input, PUT for output)
+    STSCreds sts = 2;          // STS temporary credentials
+  }
+}
+
+// RequestJob: Agent requests a job from cloud
+message RequestJob {
+  // agent_id: Must equal Envelope.agent_id if present (server validates consistency)
+  string agent_id = 1;
+  repeated string capabilities = 2;   // Optional: agent capabilities/tags
+  int32 max_concurrency = 3;          // Optional: max concurrent jobs (override from Register)
+}
+
+// JobAssigned: Cloud assigns a job to agent
+message JobAssigned {
+  string job_id = 1;                  // UUID of the job
+  int32 attempt_id = 2;               // Attempt number (starts at 1) - required for idempotent output paths
+  string lease_id = 3;                // Lease identifier (reserved for future lease renewal)
+  int32 lease_ttl_sec = 4;            // Lease TTL in seconds (reserved for future)
+  
+  // Input download access
+  OSSAccess input_download = 5;       // Presigned GET URL or STS for downloading input
+  
+  // Output upload access
+  OSSAccess output_upload = 6;        // Presigned PUT URL or STS for uploading output
+  
+  // Output path information
+  // VALIDATION RULES (server MUST enforce before assigning job):
+  // - If output_upload uses presigned_url: output_key MUST be set, and presigned_url must target that exact key.
+  // - If output_upload uses STS: output_prefix MUST be set, agent may write any key under this prefix.
+  // Server must reject job assignment if these rules are violated.
+  string output_prefix = 7;           // Output key prefix (e.g., "jobs/{job_id}/{attempt_id}/") - required if using STS
+  string output_key = 8;              // Specific output key - required if using presigned_url
+  string command = 9;                 // Command to execute (e.g., "python C:/scripts/analyze.py {input} {output}")
+}
+
+// JobStatus: Agent reports job execution status
+message JobStatus {
+  string job_id = 1;                  // Job identifier
+  int32 attempt_id = 2;               // Attempt number
+  JobStatusEnum status = 3;           // Current status: RUNNING/SUCCEEDED/FAILED/ASSIGNED/CANCELED/LOST
+  string message = 4;                 // Optional: status message or error description
+  string output_key = 5;              // Output key for consistency check (required on SUCCEEDED if output file exists)
+  string stdout = 6;                  // Optional: command stdout output (truncated if too long)
+  string stderr = 7;                  // Optional: command stderr output (truncated if too long, typically for FAILED status)
+}
