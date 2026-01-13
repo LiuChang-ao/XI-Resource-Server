@@ -249,6 +249,7 @@ message JobAssigned {
   
   // 输入下载访问
   OSSAccess input_download = 5;       // Presigned GET URL 或 STS 用于下载输入
+  string input_key = 10;              // 输入OSS key (用于提取文件扩展名)
   
   // 输出上传访问
   OSSAccess output_upload = 6;        // Presigned PUT URL 或 STS 用于上传输出
@@ -293,14 +294,19 @@ message STSCreds {
 - 示例: `"python C:/scripts/analyze.py {input} {output}"`
 
 **文件路径格式**:
-- Windows: `C:\Users\...\AppData\Local\Temp\job_xxx_input`
-- Linux: `/tmp/job_xxx_input`
+- Windows: `C:\Users\...\AppData\Local\Temp\job_xxx_input.<ext>`
+- Linux: `/tmp/job_xxx_input.<ext>`
+- Agent会从 `input_key` 中提取文件扩展名并保留在临时文件名中
+- 例如: 如果 `input_key = "inputs/image.jpg"`，临时文件将是 `job_xxx_input.jpg`
 - 脚本应该直接使用这些路径进行文件操作（读取输入文件，写入输出文件）
 
 **Agent处理流程**:
 1. 接收 `JobAssigned` 消息
 2. 检查是否可以接受作业（未暂停且有容量）
 3. 从 `input_download` 获取presigned URL，下载输入文件到临时文件
+   - Agent会从 `input_key` 中提取文件扩展名（如果存在）
+   - 临时文件名格式: `job_{job_id}_input{.<ext>}`
+   - 例如: `input_key = "inputs/image.jpg"` → 临时文件 `job_xxx_input.jpg`
 4. 创建输出文件路径（临时文件）
 5. 执行 `command`，替换 `{input}` 和 `{output}` 占位符为实际文件路径
 6. 读取输出文件并上传到 `output_upload` 提供的presigned URL

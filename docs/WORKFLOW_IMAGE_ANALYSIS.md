@@ -333,15 +333,21 @@ c.reportJobStatus(jobID, attemptID, JOB_STATUS_RUNNING, "Processing job", "")
 #### 3.3.3 下载输入文件
 ```go
 // 从presigned URL下载输入文件
-inputFile := "C:\\Users\\...\\AppData\\Local\\Temp\\job_550e8400..._input"
-err := downloadInputToFile(inputDownloadURL, jobID)
-// 下载到临时文件: job_{job_id}_input
+// Agent会从input_key中提取扩展名并保留在临时文件名中
+inputFile := "C:\\Users\\...\\AppData\\Local\\Temp\\job_550e8400..._input.jpg"
+err := downloadInputToFile(inputDownloadURL, jobID, assigned.InputKey)
+// 下载到临时文件: job_{job_id}_input{.<ext>}
+// 例如: input_key = "inputs/image.jpg" → job_xxx_input.jpg
 ```
 
 **下载过程**:
 - 使用HTTP GET请求presigned URL
-- 将文件保存到临时目录（Windows: `%TEMP%\job_{job_id}_input`）
+- 从`JobAssigned.input_key`中提取文件扩展名（如果存在）
+- 将文件保存到临时目录，文件名格式: `job_{job_id}_input{.<ext>}`
+  - Windows: `%TEMP%\job_{job_id}_input{.<ext>}`
+  - Linux: `/tmp/job_{job_id}_input{.<ext>}`
 - 验证HTTP状态码为200
+- **重要**: 保留扩展名确保脚本可以正确识别文件类型（例如: Python脚本可以通过扩展名判断是图片还是文本文件）
 
 #### 3.3.4 执行命令
 ```go

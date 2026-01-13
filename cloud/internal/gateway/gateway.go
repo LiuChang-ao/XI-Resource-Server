@@ -399,6 +399,7 @@ func (g *Gateway) handleRequestJob(agentConn *AgentConnection, envelope *control
 				LeaseId:       leaseID,
 				LeaseTtlSec:   leaseTTLSec,
 				InputDownload: &control.OSSAccess{Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: inputDownloadURL}},
+				InputKey:      j.InputKey,
 				OutputUpload:  &control.OSSAccess{Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: outputUploadURL}},
 				OutputPrefix:  outputPrefix,
 				OutputKey:     outputKey,
@@ -510,6 +511,21 @@ func (g *Gateway) handleJobStatus(agentConn *AgentConnection, envelope *control.
 		if err := g.jobStore.UpdateStdoutStderr(jobID, stdout, stderr); err != nil {
 			log.Printf("Failed to update stdout/stderr for job %s: %v", jobID, err)
 			// Continue anyway - stdout/stderr update failure shouldn't fail the job
+		}
+
+		// If store expects an output file (OutputKey is set), but status doesn't provide output_key, mark as FAILED
+		if j.OutputKey != "" && outputKey == "" {
+			log.Printf("JobStatus: job %s expects output_key=%s but agent reported none, marking as FAILED", jobID, j.OutputKey)
+			if err := g.jobStore.UpdateStatus(jobID, job.StatusFailed); err != nil {
+				log.Printf("Failed to update job %s to FAILED: %v", jobID, err)
+			} else {
+				// Fix 5: Decrement RunningJobs on terminal state
+				agentInfo, _ := g.registry.GetAgent(agentID)
+				if agentInfo != nil && agentInfo.RunningJobs > 0 {
+					g.registry.UpdateHeartbeat(agentID, agentInfo.Paused, agentInfo.RunningJobs-1)
+				}
+			}
+			return
 		}
 
 		// If output_key is provided, validate it matches store.OutputKey (presigned mode)

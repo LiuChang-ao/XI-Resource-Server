@@ -751,6 +751,7 @@ type JobAssigned struct {
 	LeaseTtlSec int32                  `protobuf:"varint,4,opt,name=lease_ttl_sec,json=leaseTtlSec,proto3" json:"lease_ttl_sec,omitempty"` // Lease TTL in seconds (reserved for future)
 	// Input download access
 	InputDownload *OSSAccess `protobuf:"bytes,5,opt,name=input_download,json=inputDownload,proto3" json:"input_download,omitempty"` // Presigned GET URL or STS for downloading input
+	InputKey      string     `protobuf:"bytes,10,opt,name=input_key,json=inputKey,proto3" json:"input_key,omitempty"`               // Input OSS key (for extracting file extension)
 	// Output upload access
 	OutputUpload *OSSAccess `protobuf:"bytes,6,opt,name=output_upload,json=outputUpload,proto3" json:"output_upload,omitempty"` // Presigned PUT URL or STS for uploading output
 	// Output path information
@@ -828,6 +829,13 @@ func (x *JobAssigned) GetInputDownload() *OSSAccess {
 		return x.InputDownload
 	}
 	return nil
+}
+
+func (x *JobAssigned) GetInputKey() string {
+	if x != nil {
+		return x.InputKey
+	}
+	return ""
 }
 
 func (x *JobAssigned) GetOutputUpload() *OSSAccess {
@@ -1003,14 +1011,16 @@ const file_control_proto_rawDesc = "" +
 	"RequestJob\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\"\n" +
 	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\x12'\n" +
-	"\x0fmax_concurrency\x18\x03 \x01(\x05R\x0emaxConcurrency\"\xd4\x02\n" +
+	"\x0fmax_concurrency\x18\x03 \x01(\x05R\x0emaxConcurrency\"\xf1\x02\n" +
 	"\vJobAssigned\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x1d\n" +
 	"\n" +
 	"attempt_id\x18\x02 \x01(\x05R\tattemptId\x12\x19\n" +
 	"\blease_id\x18\x03 \x01(\tR\aleaseId\x12\"\n" +
 	"\rlease_ttl_sec\x18\x04 \x01(\x05R\vleaseTtlSec\x129\n" +
-	"\x0einput_download\x18\x05 \x01(\v2\x12.control.OSSAccessR\rinputDownload\x127\n" +
+	"\x0einput_download\x18\x05 \x01(\v2\x12.control.OSSAccessR\rinputDownload\x12\x1b\n" +
+	"\tinput_key\x18\n" +
+	" \x01(\tR\binputKey\x127\n" +
 	"\routput_upload\x18\x06 \x01(\v2\x12.control.OSSAccessR\foutputUpload\x12#\n" +
 	"\routput_prefix\x18\a \x01(\tR\foutputPrefix\x12\x1d\n" +
 	"\n" +

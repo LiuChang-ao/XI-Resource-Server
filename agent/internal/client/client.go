@@ -401,8 +401,8 @@ func (c *Client) processJob(assigned *control.JobAssigned) {
 		return
 	}
 
-	// Download input to temporary file
-	inputFile, err := c.downloadInputToFile(inputURL, jobID)
+	// Download input to temporary file (preserve extension from input_key)
+	inputFile, err := c.downloadInputToFile(inputURL, jobID, assigned.InputKey)
 	if err != nil {
 		log.Printf("Failed to download input for job %s: %v", jobID, err)
 		c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, fmt.Sprintf("Download failed: %v", err), "")
@@ -541,7 +541,8 @@ func (c *Client) stubCompute(jobID string, attemptID int, inputSize int64, input
 }
 
 // downloadInputToFile downloads input from presigned URL to a temporary file
-func (c *Client) downloadInputToFile(url, jobID string) (string, error) {
+// It preserves the file extension from input_key if available
+func (c *Client) downloadInputToFile(url, jobID, inputKey string) (string, error) {
 	resp, err := c.httpClient.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("HTTP GET failed: %w", err)
@@ -552,8 +553,17 @@ func (c *Client) downloadInputToFile(url, jobID string) (string, error) {
 		return "", fmt.Errorf("HTTP GET returned status %d", resp.StatusCode)
 	}
 
-	// Create temporary file
-	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("job_%s_input", jobID))
+	// Extract extension from input_key if available
+	extension := ""
+	if inputKey != "" {
+		ext := filepath.Ext(inputKey)
+		if ext != "" {
+			extension = ext
+		}
+	}
+
+	// Create temporary file with extension preserved
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("job_%s_input%s", jobID, extension))
 	f, err := os.Create(tmpFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)

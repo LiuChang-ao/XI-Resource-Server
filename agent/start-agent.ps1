@@ -1,12 +1,12 @@
-# Agent 启动脚本
+﻿# Agent 启动脚本
 # 使用方法: .\start-agent.ps1 -Server "wss://your-server.com/wss" -AgentID "workstation-001" -AgentToken "your-token"
 
 param(
     [Parameter(Mandatory=$false)]
-    [string]$Server = "ws://localhost:8080/wss",
+    [string]$Server = "ws://116.62.112.11:8086/wss",
     
     [Parameter(Mandatory=$true)]
-    [string]$AgentID,
+    [string]$AgentID = "agent-liuPC",
     
     [Parameter(Mandatory=$false)]
     [string]$AgentToken = "dev-token",

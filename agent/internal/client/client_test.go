@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -327,8 +328,8 @@ func TestClient_DownloadInputToFile(t *testing.T) {
 	client := New("ws://test", "test-agent", "test-token", 1)
 	client.httpClient = &http.Client{Timeout: 5 * time.Second}
 
-	// Create a temporary file path
-	filePath, err := client.downloadInputToFile(server.URL, "test-job")
+	// Create a temporary file path (with extension from input_key)
+	filePath, err := client.downloadInputToFile(server.URL, "test-job", "test-input.txt")
 	if err != nil {
 		t.Fatalf("Failed to download input to file: %v", err)
 	}
@@ -345,6 +346,119 @@ func TestClient_DownloadInputToFile(t *testing.T) {
 
 	if !bytes.Equal(fileData, inputData) {
 		t.Errorf("File content does not match. Expected %s, got %s", string(inputData), string(fileData))
+	}
+}
+
+func TestClient_DownloadInputToFile_ExtensionPreservation(t *testing.T) {
+	inputData := []byte("test image data")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(inputData)
+	}))
+	defer server.Close()
+
+	client := New("ws://test", "test-agent", "test-token", 1)
+	client.httpClient = &http.Client{Timeout: 5 * time.Second}
+
+	testCases := []struct {
+		name      string
+		inputKey  string
+		jobID     string
+		wantExt   string
+		wantInName bool
+	}{
+		{
+			name:      "jpg extension preserved",
+			inputKey:  "inputs/image.jpg",
+			jobID:     "test-job-001",
+			wantExt:   ".jpg",
+			wantInName: true,
+		},
+		{
+			name:      "png extension preserved",
+			inputKey:  "zfc_files/ui_tap/281.png",
+			jobID:     "test-job-002",
+			wantExt:   ".png",
+			wantInName: true,
+		},
+		{
+			name:      "json extension preserved",
+			inputKey:  "data/input.json",
+			jobID:     "test-job-003",
+			wantExt:   ".json",
+			wantInName: true,
+		},
+		{
+			name:      "no extension in input_key",
+			inputKey:  "inputs/data",
+			jobID:     "test-job-004",
+			wantExt:   "",
+			wantInName: false,
+		},
+		{
+			name:      "empty input_key",
+			inputKey:  "",
+			jobID:     "test-job-005",
+			wantExt:   "",
+			wantInName: false,
+		},
+		{
+			name:      "multiple dots in path",
+			inputKey:  "inputs/data.backup.tar.gz",
+			jobID:     "test-job-006",
+			wantExt:   ".gz",
+			wantInName: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			filePath, err := client.downloadInputToFile(server.URL, tc.jobID, tc.inputKey)
+			if err != nil {
+				t.Fatalf("Failed to download input to file: %v", err)
+			}
+			defer func() {
+				_ = os.Remove(filePath)
+			}()
+
+			// Verify file exists
+			if _, err := os.Stat(filePath); os.IsNotExist(err) {
+				t.Fatalf("File was not created: %s", filePath)
+			}
+
+			// Verify extension is preserved in filename
+			actualExt := filepath.Ext(filePath)
+			if tc.wantInName {
+				if actualExt != tc.wantExt {
+					t.Errorf("Expected extension %s in filename, got %s. File path: %s", tc.wantExt, actualExt, filePath)
+				}
+				// Verify the extension appears in the filename
+				if !strings.Contains(filePath, tc.wantExt) {
+					t.Errorf("Expected extension %s to appear in file path: %s", tc.wantExt, filePath)
+				}
+			} else {
+				// If no extension expected, verify it's not in the filename
+				if actualExt != "" {
+					t.Errorf("Expected no extension, but got %s in file path: %s", actualExt, filePath)
+				}
+			}
+
+			// Verify file content
+			fileData, err := os.ReadFile(filePath)
+			if err != nil {
+				t.Fatalf("Failed to read downloaded file: %v", err)
+			}
+			if !bytes.Equal(fileData, inputData) {
+				t.Errorf("File content does not match")
+			}
+
+			// Verify filename format: job_{job_id}_input{.<ext>}
+			baseName := filepath.Base(filePath)
+			expectedPrefix := fmt.Sprintf("job_%s_input", tc.jobID)
+			if !strings.HasPrefix(baseName, expectedPrefix) {
+				t.Errorf("Expected filename to start with %s, got %s", expectedPrefix, baseName)
+			}
+		})
 	}
 }
 

@@ -119,6 +119,16 @@ func (m *mockJobStore) UpdateAttemptID(jobID string, attemptID int) error {
 	return nil
 }
 
+func (m *mockJobStore) UpdateStdoutStderr(jobID string, stdout, stderr string) error {
+	j, exists := m.jobs[jobID]
+	if !exists {
+		return job.ErrJobNotFound
+	}
+	j.Stdout = stdout
+	j.Stderr = stderr
+	return nil
+}
+
 func (m *mockJobStore) List(limit int, offset int, status *job.Status) ([]*job.Job, error) {
 	// Not needed for this test
 	return nil, nil
@@ -310,6 +320,11 @@ func TestGateway_HandleRequestJob(t *testing.T) {
 
 		if jobAssigned.OutputUpload == nil {
 			t.Fatal("OutputUpload should not be nil")
+		}
+
+		// Verify input_key is included in JobAssigned message
+		if jobAssigned.InputKey != testJob.InputKey {
+			t.Errorf("JobAssigned.InputKey = %v, want %v", jobAssigned.InputKey, testJob.InputKey)
 		}
 
 	case <-time.After(1 * time.Second):
@@ -576,6 +591,7 @@ func TestGateway_HandleJobStatus_SUCCEEDED_MissingOutputKey(t *testing.T) {
 	mockReg.Register(agentID, "test-host", 1)
 
 	jobID := "job-123"
+	expectedOutputKey := "jobs/job-123/1/output.bin"
 	testJob := &job.Job{
 		JobID:           jobID,
 		CreatedAt:       time.Now(),
@@ -583,6 +599,7 @@ func TestGateway_HandleJobStatus_SUCCEEDED_MissingOutputKey(t *testing.T) {
 		InputBucket:     "input-bucket",
 		InputKey:        "inputs/job-123/input.bin",
 		OutputBucket:    "output-bucket",
+		OutputKey:       expectedOutputKey, // Store expects an output file
 		AttemptID:       1,
 		AssignedAgentID: agentID,
 	}

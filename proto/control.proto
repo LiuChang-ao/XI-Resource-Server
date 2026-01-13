@@ -100,6 +100,7 @@ message JobAssigned {
   
   // Input download access
   OSSAccess input_download = 5;       // Presigned GET URL or STS for downloading input
+  string input_key = 10;              // Input OSS key (for extracting file extension)
   
   // Output upload access
   OSSAccess output_upload = 6;        // Presigned PUT URL or STS for uploading output
