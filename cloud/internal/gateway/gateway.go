@@ -513,22 +513,9 @@ func (g *Gateway) handleJobStatus(agentConn *AgentConnection, envelope *control.
 			// Continue anyway - stdout/stderr update failure shouldn't fail the job
 		}
 
-		// If store expects an output file (OutputKey is set), but status doesn't provide output_key, mark as FAILED
-		if j.OutputKey != "" && outputKey == "" {
-			log.Printf("JobStatus: job %s expects output_key=%s but agent reported none, marking as FAILED", jobID, j.OutputKey)
-			if err := g.jobStore.UpdateStatus(jobID, job.StatusFailed); err != nil {
-				log.Printf("Failed to update job %s to FAILED: %v", jobID, err)
-			} else {
-				// Fix 5: Decrement RunningJobs on terminal state
-				agentInfo, _ := g.registry.GetAgent(agentID)
-				if agentInfo != nil && agentInfo.RunningJobs > 0 {
-					g.registry.UpdateHeartbeat(agentID, agentInfo.Paused, agentInfo.RunningJobs-1)
-				}
-			}
-			return
-		}
-
 		// If output_key is provided, validate it matches store.OutputKey (presigned mode)
+		// Note: output_key is optional - if agent doesn't provide it, we allow SUCCEEDED
+		// (command may only produce stdout without an output file)
 		if outputKey != "" {
 			// Fix 4: Strict validation - output_key must exactly equal store.OutputKey (presigned mode)
 			if j.OutputKey == "" {

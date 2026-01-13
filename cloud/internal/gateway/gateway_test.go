@@ -515,6 +515,7 @@ func TestGateway_HandleJobStatus_SUCCEEDED(t *testing.T) {
 	// Register an agent and assign a job
 	agentID := "agent-123"
 	mockReg.Register(agentID, "test-host", 1)
+	mockReg.UpdateHeartbeat(agentID, false, 1) // Set RunningJobs=1 to test decrement
 
 	jobID := "job-123"
 	attemptID := 1
@@ -576,6 +577,15 @@ func TestGateway_HandleJobStatus_SUCCEEDED(t *testing.T) {
 	if updatedJob.OutputPrefix != expectedPrefix {
 		t.Errorf("OutputPrefix = %v, want %v", updatedJob.OutputPrefix, expectedPrefix)
 	}
+
+	// Verify RunningJobs was decremented
+	agentInfo, exists := mockReg.GetAgent(agentID)
+	if !exists {
+		t.Fatal("Agent should still exist")
+	}
+	if agentInfo.RunningJobs != 0 {
+		t.Errorf("RunningJobs = %v, want 0 (should be decremented on terminal state)", agentInfo.RunningJobs)
+	}
 }
 
 func TestGateway_HandleJobStatus_SUCCEEDED_MissingOutputKey(t *testing.T) {
@@ -589,6 +599,7 @@ func TestGateway_HandleJobStatus_SUCCEEDED_MissingOutputKey(t *testing.T) {
 	// Register an agent and assign a job
 	agentID := "agent-123"
 	mockReg.Register(agentID, "test-host", 1)
+	mockReg.UpdateHeartbeat(agentID, false, 1) // Set RunningJobs=1 to test decrement
 
 	jobID := "job-123"
 	expectedOutputKey := "jobs/job-123/1/output.bin"
@@ -599,7 +610,7 @@ func TestGateway_HandleJobStatus_SUCCEEDED_MissingOutputKey(t *testing.T) {
 		InputBucket:     "input-bucket",
 		InputKey:        "inputs/job-123/input.bin",
 		OutputBucket:    "output-bucket",
-		OutputKey:       expectedOutputKey, // Store expects an output file
+		OutputKey:       expectedOutputKey, // Store has OutputKey (from job assignment)
 		AttemptID:       1,
 		AssignedAgentID: agentID,
 	}
@@ -612,7 +623,7 @@ func TestGateway_HandleJobStatus_SUCCEEDED_MissingOutputKey(t *testing.T) {
 		CloseChan: make(chan struct{}),
 	}
 
-	// Create JobStatus SUCCEEDED message without output_key
+	// Create JobStatus SUCCEEDED message without output_key (command only produces stdout)
 	envelope := &control.Envelope{
 		AgentId:   agentID,
 		RequestId: uuid.New().String(),
@@ -622,22 +633,37 @@ func TestGateway_HandleJobStatus_SUCCEEDED_MissingOutputKey(t *testing.T) {
 				JobId:     jobID,
 				AttemptId: 1,
 				Status:    control.JobStatusEnum_JOB_STATUS_SUCCEEDED,
-				OutputKey: "", // Missing output_key
+				OutputKey: "", // No output file, only stdout (this is allowed)
+				Stdout:    "Command output",
 			},
 		},
 	}
 
-	// Process JobStatus (should reject and mark as FAILED)
+	// Process JobStatus (should accept and mark as SUCCEEDED - output_key is optional)
 	gw.handleJobStatus(agentConn, envelope, envelope.GetJobStatus())
 
-	// Check that job status was updated to FAILED (not SUCCEEDED)
+	// Check that job status was updated to SUCCEEDED (output_key is optional)
 	updatedJob, err := mockStore.Get(jobID)
 	if err != nil {
 		t.Fatalf("Failed to get job: %v", err)
 	}
 
-	if updatedJob.Status != job.StatusFailed {
-		t.Errorf("Job status = %v, want %v (should be FAILED when output_key is missing)", updatedJob.Status, job.StatusFailed)
+	if updatedJob.Status != job.StatusSucceeded {
+		t.Errorf("Job status = %v, want %v (should be SUCCEEDED when output_key is missing but command produces stdout)", updatedJob.Status, job.StatusSucceeded)
+	}
+
+	// Verify stdout was saved
+	if updatedJob.Stdout != "Command output" {
+		t.Errorf("Stdout = %v, want %v", updatedJob.Stdout, "Command output")
+	}
+
+	// Verify RunningJobs was decremented
+	agentInfo, exists := mockReg.GetAgent(agentID)
+	if !exists {
+		t.Fatal("Agent should still exist")
+	}
+	if agentInfo.RunningJobs != 0 {
+		t.Errorf("RunningJobs = %v, want 0 (should be decremented on terminal state)", agentInfo.RunningJobs)
 	}
 }
 
@@ -652,9 +678,11 @@ func TestGateway_HandleJobStatus_SUCCEEDED_InvalidOutputKey(t *testing.T) {
 	// Register an agent and assign a job
 	agentID := "agent-123"
 	mockReg.Register(agentID, "test-host", 1)
+	mockReg.UpdateHeartbeat(agentID, false, 1) // Set RunningJobs=1 to test decrement
 
 	jobID := "job-123"
 	attemptID := 1
+	expectedOutputKey := fmt.Sprintf("jobs/%s/%d/output.bin", jobID, attemptID)
 	testJob := &job.Job{
 		JobID:           jobID,
 		CreatedAt:       time.Now(),
@@ -662,6 +690,7 @@ func TestGateway_HandleJobStatus_SUCCEEDED_InvalidOutputKey(t *testing.T) {
 		InputBucket:     "input-bucket",
 		InputKey:        "inputs/job-123/input.bin",
 		OutputBucket:    "output-bucket",
+		OutputKey:       expectedOutputKey, // Store has expected output key
 		AttemptID:       attemptID,
 		AssignedAgentID: agentID,
 	}
@@ -674,7 +703,7 @@ func TestGateway_HandleJobStatus_SUCCEEDED_InvalidOutputKey(t *testing.T) {
 		CloseChan: make(chan struct{}),
 	}
 
-	// Create JobStatus SUCCEEDED message with invalid output_key (not in correct prefix)
+	// Create JobStatus SUCCEEDED message with invalid output_key (doesn't match store.OutputKey)
 	invalidOutputKey := "invalid/path/output.bin"
 	envelope := &control.Envelope{
 		AgentId:   agentID,
@@ -685,12 +714,12 @@ func TestGateway_HandleJobStatus_SUCCEEDED_InvalidOutputKey(t *testing.T) {
 				JobId:     jobID,
 				AttemptId: int32(attemptID),
 				Status:    control.JobStatusEnum_JOB_STATUS_SUCCEEDED,
-				OutputKey: invalidOutputKey, // Invalid prefix
+				OutputKey: invalidOutputKey, // Doesn't match expectedOutputKey
 			},
 		},
 	}
 
-	// Process JobStatus (should reject and mark as FAILED)
+	// Process JobStatus (should reject and mark as FAILED because output_key doesn't match)
 	gw.handleJobStatus(agentConn, envelope, envelope.GetJobStatus())
 
 	// Check that job status was updated to FAILED (not SUCCEEDED)
@@ -700,7 +729,16 @@ func TestGateway_HandleJobStatus_SUCCEEDED_InvalidOutputKey(t *testing.T) {
 	}
 
 	if updatedJob.Status != job.StatusFailed {
-		t.Errorf("Job status = %v, want %v (should be FAILED when output_key has invalid prefix)", updatedJob.Status, job.StatusFailed)
+		t.Errorf("Job status = %v, want %v (should be FAILED when output_key doesn't match store.OutputKey)", updatedJob.Status, job.StatusFailed)
+	}
+
+	// Verify RunningJobs was decremented
+	agentInfo, exists := mockReg.GetAgent(agentID)
+	if !exists {
+		t.Fatal("Agent should still exist")
+	}
+	if agentInfo.RunningJobs != 0 {
+		t.Errorf("RunningJobs = %v, want 0 (should be decremented on terminal state)", agentInfo.RunningJobs)
 	}
 }
 
