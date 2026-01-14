@@ -158,8 +158,10 @@ func (h *Handler) HandleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate that we have OSS keys (not file content)
-	if req.InputBucket == "" || req.InputKey == "" {
-		http.Error(w, "input_bucket and input_key are required (OSS keys only, not file content)", http.StatusBadRequest)
+	// Input is optional - jobs can run without input files (e.g., scheduled tasks, pure computation)
+	// If input_bucket is provided, input_key must also be provided (and vice versa)
+	if (req.InputBucket == "" && req.InputKey != "") || (req.InputBucket != "" && req.InputKey == "") {
+		http.Error(w, "input_bucket and input_key must both be provided or both be empty (OSS keys only, not file content)", http.StatusBadRequest)
 		return
 	}
 	if req.OutputBucket == "" {

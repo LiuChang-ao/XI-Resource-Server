@@ -370,30 +370,6 @@ func (c *Client) processJob(assigned *control.JobAssigned) {
 	// Report RUNNING status
 	c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_RUNNING, fmt.Sprintf("Processing job"), "")
 
-	// Download input
-	inputAccess := assigned.InputDownload
-	if inputAccess == nil {
-		log.Printf("JobAssigned missing input_download for job %s", jobID)
-		c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, "Missing input_download", "")
-		return
-	}
-
-	// Get presigned URL from OSSAccess
-	var inputURL string
-	switch auth := inputAccess.Auth.(type) {
-	case *control.OSSAccess_PresignedUrl:
-		inputURL = auth.PresignedUrl
-	case *control.OSSAccess_Sts:
-		// STS not implemented in M1
-		log.Printf("STS not supported in M1 for job %s", jobID)
-		c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, "STS not supported", "")
-		return
-	default:
-		log.Printf("Invalid input_download auth type for job %s", jobID)
-		c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, "Invalid input_download", "")
-		return
-	}
-
 	// Check if command is provided
 	if assigned.Command == "" {
 		log.Printf("JobAssigned missing command for job %s", jobID)
@@ -401,18 +377,46 @@ func (c *Client) processJob(assigned *control.JobAssigned) {
 		return
 	}
 
-	// Download input to temporary file (preserve extension from input_key)
-	inputFile, err := c.downloadInputToFile(inputURL, jobID, assigned.InputKey)
-	if err != nil {
-		log.Printf("Failed to download input for job %s: %v", jobID, err)
-		c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, fmt.Sprintf("Download failed: %v", err), "")
-		return
-	}
-	defer func() {
-		if err := os.Remove(inputFile); err != nil {
-			log.Printf("Warning: Failed to cleanup input file %s: %v", inputFile, err)
+	// Download input if provided (input is optional - jobs can run without input files)
+	var inputFile string
+	inputAccess := assigned.InputDownload
+	if inputAccess != nil {
+		// Get presigned URL from OSSAccess
+		var inputURL string
+		switch auth := inputAccess.Auth.(type) {
+		case *control.OSSAccess_PresignedUrl:
+			inputURL = auth.PresignedUrl
+		case *control.OSSAccess_Sts:
+			// STS not implemented in M1
+			log.Printf("STS not supported in M1 for job %s", jobID)
+			c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, "STS not supported", "")
+			return
+		default:
+			log.Printf("Invalid input_download auth type for job %s", jobID)
+			c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, "Invalid input_download", "")
+			return
 		}
-	}()
+
+		// Download input to temporary file (preserve extension from input_key)
+		var err error
+		inputFile, err = c.downloadInputToFile(inputURL, jobID, assigned.InputKey)
+		if err != nil {
+			log.Printf("Failed to download input for job %s: %v", jobID, err)
+			c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, fmt.Sprintf("Download failed: %v", err), "")
+			return
+		}
+		defer func() {
+			if err := os.Remove(inputFile); err != nil {
+				log.Printf("Warning: Failed to cleanup input file %s: %v", inputFile, err)
+			}
+		}()
+		log.Printf("Downloaded input for job %s to %s", jobID, inputFile)
+	} else {
+		log.Printf("Job %s has no input file (running without input)", jobID)
+		// Use empty string as placeholder - command can still use {input} placeholder
+		// but it will be replaced with empty string
+		inputFile = ""
+	}
 
 	// Create output file path
 	outputFile := filepath.Join(os.TempDir(), fmt.Sprintf("job_%s_output", jobID))

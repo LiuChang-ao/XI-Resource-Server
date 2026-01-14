@@ -301,7 +301,7 @@ func TestHandleCreateJob_ValidateRequiredFields(t *testing.T) {
 	server, _, cleanup := setupTestServer(t, false)
 	defer cleanup()
 
-	// Missing input_key
+	// Test: Missing input_key but has input_bucket (should fail)
 	reqBody := CreateJobRequest{
 		InputBucket:  "test-bucket",
 		OutputBucket: "test-bucket",
@@ -322,6 +322,91 @@ func TestHandleCreateJob_ValidateRequiredFields(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		t.Errorf("Expected status 400, got %d: %s", resp.StatusCode, string(body))
 	}
+
+	// Test: Missing input_bucket but has input_key (should fail)
+	reqBody2 := CreateJobRequest{
+		InputKey:     "test-key",
+		OutputBucket: "test-bucket",
+	}
+
+	jsonData2, err := json.Marshal(reqBody2)
+	if err != nil {
+		t.Fatalf("Failed to marshal request: %v", err)
+	}
+
+	resp2, err := http.Post(server.URL+"/api/jobs", "application/json", bytes.NewBuffer(jsonData2))
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusBadRequest {
+		body, _ := io.ReadAll(resp2.Body)
+		t.Errorf("Expected status 400, got %d: %s", resp2.StatusCode, string(body))
+	}
+}
+
+func TestHandleCreateJob_NoInputFile(t *testing.T) {
+	// Use InMemoryQueue for stable testing without Redis dependency
+	inMemoryQueue := queue.NewInMemoryQueue()
+	server, _, cleanup := setupTestServerWithQueue(t, inMemoryQueue, false)
+	defer cleanup()
+
+	// Create job without input files
+	reqBody := CreateJobRequest{
+		OutputBucket: "test-bucket",
+		Command:      "echo Hello World",
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatalf("Failed to marshal request: %v", err)
+	}
+
+	resp, err := http.Post(server.URL+"/api/jobs", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Errorf("Expected status 201, got %d: %s", resp.StatusCode, string(body))
+		return
+	}
+
+	var response CreateJobResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if response.JobID == "" {
+		t.Error("Expected job_id in response, got empty")
+	}
+
+	if response.Status != "PENDING" {
+		t.Errorf("Expected status PENDING, got %s", response.Status)
+	}
+
+	// Verify job was enqueued
+	ctx := context.Background()
+	size, err := inMemoryQueue.Size(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get queue size: %v", err)
+	}
+	if size != 1 {
+		t.Errorf("Expected queue size 1, got %d", size)
+	}
+
+	peeked, err := inMemoryQueue.Peek(ctx)
+	if err != nil {
+		t.Fatalf("Failed to peek queue: %v", err)
+	}
+	if peeked != response.JobID {
+		t.Errorf("Expected job ID %s in queue, got %s", response.JobID, peeked)
+	}
+
+	t.Logf("Created job without input: %s", response.JobID)
 }
 
 func TestHandleCreateJob_RejectEmptyBody(t *testing.T) {

@@ -332,6 +332,112 @@ func TestGateway_HandleRequestJob(t *testing.T) {
 	}
 }
 
+func TestGateway_HandleRequestJob_NoInputFile(t *testing.T) {
+	// Setup
+	mockReg := newMockRegistry()
+	mockStore := newMockJobStore()
+	mockQueue := newMockQueue()
+	mockOSS := newMockOSSProvider()
+	gw := New(mockReg, mockStore, mockQueue, mockOSS, true)
+
+	// Register an agent
+	agentID := "agent-123"
+	mockReg.Register(agentID, "test-host", 1)
+	mockReg.UpdateHeartbeat(agentID, false, 0)
+
+	// Create a job without input files and add it to the queue
+	jobID := "job-no-input-123"
+	testJob := &job.Job{
+		JobID:        jobID,
+		CreatedAt:    time.Now(),
+		Status:       job.StatusPending,
+		InputBucket:  "", // No input
+		InputKey:     "", // No input
+		OutputBucket: "output-bucket",
+		AttemptID:    1,
+		Command:      "echo Hello World",
+	}
+	mockStore.Create(testJob)
+	mockQueue.Enqueue(context.Background(), jobID)
+
+	// Create agent connection (simplified for testing)
+	agentConn := &AgentConnection{
+		AgentID:   agentID,
+		SendChan:  make(chan []byte, 256),
+		CloseChan: make(chan struct{}),
+	}
+
+	// Create RequestJob message
+	envelope := &control.Envelope{
+		AgentId:   agentID,
+		RequestId: uuid.New().String(),
+		Timestamp: time.Now().UnixMilli(),
+		Payload: &control.Envelope_RequestJob{
+			RequestJob: &control.RequestJob{
+				AgentId: agentID,
+			},
+		},
+	}
+
+	// Process RequestJob
+	gw.handleRequestJob(agentConn, envelope, envelope.GetRequestJob())
+
+	// Check that job was assigned
+	updatedJob, err := mockStore.Get(jobID)
+	if err != nil {
+		t.Fatalf("Failed to get job: %v", err)
+	}
+
+	if updatedJob.Status != job.StatusAssigned {
+		t.Errorf("Job status = %v, want %v", updatedJob.Status, job.StatusAssigned)
+	}
+
+	if updatedJob.AssignedAgentID != agentID {
+		t.Errorf("AssignedAgentID = %v, want %v", updatedJob.AssignedAgentID, agentID)
+	}
+
+	// Check that JobAssigned message was sent
+	select {
+	case msg := <-agentConn.SendChan:
+		var assignedEnvelope control.Envelope
+		if err := proto.Unmarshal(msg, &assignedEnvelope); err != nil {
+			t.Fatalf("Failed to unmarshal JobAssigned: %v", err)
+		}
+
+		jobAssigned := assignedEnvelope.GetJobAssigned()
+		if jobAssigned == nil {
+			t.Fatal("Expected JobAssigned message")
+		}
+
+		if jobAssigned.JobId != jobID {
+			t.Errorf("JobAssigned.JobId = %v, want %v", jobAssigned.JobId, jobID)
+		}
+
+		// Verify that InputDownload is nil (no input file)
+		if jobAssigned.InputDownload != nil {
+			t.Error("InputDownload should be nil for job without input file")
+		}
+
+		// Verify that InputKey is empty
+		if jobAssigned.InputKey != "" {
+			t.Errorf("JobAssigned.InputKey = %v, want empty string", jobAssigned.InputKey)
+		}
+
+		// Verify that OutputUpload is still present
+		if jobAssigned.OutputUpload == nil {
+			t.Fatal("OutputUpload should not be nil")
+		}
+
+		// Verify command is included
+		if jobAssigned.Command != testJob.Command {
+			t.Errorf("JobAssigned.Command = %v, want %v", jobAssigned.Command, testJob.Command)
+		}
+
+	case <-time.After(1 * time.Second):
+		t.Fatal("No JobAssigned message received")
+	}
+}
+
 func TestGateway_HandleRequestJob_EmptyQueue(t *testing.T) {
 	// Setup
 	mockReg := newMockRegistry()

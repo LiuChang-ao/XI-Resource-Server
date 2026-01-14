@@ -86,23 +86,51 @@ function Invoke-E2EOSS {
 
 function Invoke-Test {
     Write-Host "Running unit tests..." -ForegroundColor Green
+    
+    # Ensure go.sum is up to date
+    Write-Host "Updating dependencies..." -ForegroundColor Yellow
     Push-Location cloud
     try {
-        go test ./...
+        go mod tidy
         if ($LASTEXITCODE -ne 0) {
-            throw "cloud tests failed"
+            Write-Warning "go mod tidy failed, but continuing..."
         }
     } finally {
         Pop-Location
     }
     
+    Push-Location proto
+    try {
+        go mod tidy
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "go mod tidy failed, but continuing..."
+        }
+    } finally {
+        Pop-Location
+    }
+    
+    # Run tests with CGO enabled (required for SQLite)
+    Push-Location cloud
+    try {
+        $env:CGO_ENABLED = "1"
+        go test ./...
+        if ($LASTEXITCODE -ne 0) {
+            throw "cloud tests failed"
+        }
+    } finally {
+        Remove-Item Env:\CGO_ENABLED -ErrorAction SilentlyContinue
+        Pop-Location
+    }
+    
     Push-Location agent
     try {
+        $env:CGO_ENABLED = "1"
         go test ./...
         if ($LASTEXITCODE -ne 0) {
             throw "agent tests failed"
         }
     } finally {
+        Remove-Item Env:\CGO_ENABLED -ErrorAction SilentlyContinue
         Pop-Location
     }
 }

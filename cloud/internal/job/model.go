@@ -78,7 +78,9 @@ func (j *Job) Validate() error {
 	if !j.Status.IsValid() {
 		return ErrInvalidStatus
 	}
-	if j.InputBucket == "" || j.InputKey == "" {
+	// Input is optional - jobs can run without input files
+	// If input_bucket is provided, input_key must also be provided (and vice versa)
+	if (j.InputBucket == "" && j.InputKey != "") || (j.InputBucket != "" && j.InputKey == "") {
 		return ErrInvalidInput
 	}
 	if j.OutputBucket == "" {

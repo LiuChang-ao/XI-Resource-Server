@@ -147,7 +147,7 @@ func TestJob_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "missing input bucket",
+			name: "missing input bucket but has input key (invalid)",
 			job: &Job{
 				JobID:        "test-job-id",
 				InputBucket:  "",
@@ -159,7 +159,7 @@ func TestJob_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "missing input key",
+			name: "missing input key but has input bucket (invalid)",
 			job: &Job{
 				JobID:        "test-job-id",
 				InputBucket:  "input-bucket",
@@ -169,6 +169,19 @@ func TestJob_Validate(t *testing.T) {
 				AttemptID:    1,
 			},
 			wantErr: true,
+		},
+		{
+			name: "no input file (both empty - valid)",
+			job: &Job{
+				JobID:        "test-job-id",
+				Status:       StatusPending,
+				InputBucket:  "",
+				InputKey:     "",
+				OutputBucket: "output-bucket",
+				OutputPrefix: "jobs/test-job-id/1/",
+				AttemptID:    1,
+			},
+			wantErr: false,
 		},
 		{
 			name: "missing output bucket",

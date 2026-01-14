@@ -338,12 +338,19 @@ func (g *Gateway) handleRequestJob(agentConn *AgentConnection, envelope *control
 	outputKey := fmt.Sprintf("%soutput.%s", outputPrefix, outputExtension)
 
 	// Fix 3: Generate presigned URLs with failure compensation
-	inputDownloadURL, err := g.ossProvider.GenerateDownloadURL(ctx, j.InputKey)
-	if err != nil {
-		log.Printf("Failed to generate input download URL for job %s: %v, re-enqueuing", jobID, err)
-		// Re-enqueue job for retry
-		_ = g.jobQueue.Enqueue(ctx, jobID)
-		return
+	// Input is optional - only generate input download URL if input is provided
+	var inputDownloadURL string
+	var inputAccess *control.OSSAccess
+	if j.InputBucket != "" && j.InputKey != "" {
+		var err error
+		inputDownloadURL, err = g.ossProvider.GenerateDownloadURL(ctx, j.InputKey)
+		if err != nil {
+			log.Printf("Failed to generate input download URL for job %s: %v, re-enqueuing", jobID, err)
+			// Re-enqueue job for retry
+			_ = g.jobQueue.Enqueue(ctx, jobID)
+			return
+		}
+		inputAccess = &control.OSSAccess{Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: inputDownloadURL}}
 	}
 
 	outputUploadURL, err := g.ossProvider.GenerateUploadURL(ctx, outputKey)
@@ -389,22 +396,28 @@ func (g *Gateway) handleRequestJob(agentConn *AgentConnection, envelope *control
 	}
 
 	// Create JobAssigned message
+	jobAssignedMsg := &control.JobAssigned{
+		JobId:        jobID,
+		AttemptId:    int32(attemptID),
+		LeaseId:      leaseID,
+		LeaseTtlSec:  leaseTTLSec,
+		OutputUpload: &control.OSSAccess{Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: outputUploadURL}},
+		OutputPrefix: outputPrefix,
+		OutputKey:    outputKey,
+		Command:      j.Command,
+	}
+	
+	// Only include input fields if input is provided
+	if inputAccess != nil {
+		jobAssignedMsg.InputDownload = inputAccess
+		jobAssignedMsg.InputKey = j.InputKey
+	}
+
 	jobAssigned := &control.Envelope{
 		RequestId: envelope.RequestId,
 		Timestamp: time.Now().UnixMilli(),
 		Payload: &control.Envelope_JobAssigned{
-			JobAssigned: &control.JobAssigned{
-				JobId:         jobID,
-				AttemptId:     int32(attemptID),
-				LeaseId:       leaseID,
-				LeaseTtlSec:   leaseTTLSec,
-				InputDownload: &control.OSSAccess{Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: inputDownloadURL}},
-				InputKey:      j.InputKey,
-				OutputUpload:  &control.OSSAccess{Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: outputUploadURL}},
-				OutputPrefix:  outputPrefix,
-				OutputKey:     outputKey,
-				Command:       j.Command,
-			},
+			JobAssigned: jobAssignedMsg,
 		},
 	}
 
