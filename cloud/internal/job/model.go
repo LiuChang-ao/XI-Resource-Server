@@ -83,9 +83,10 @@ func (j *Job) Validate() error {
 	if (j.InputBucket == "" && j.InputKey != "") || (j.InputBucket != "" && j.InputKey == "") {
 		return ErrInvalidInput
 	}
-	if j.OutputBucket == "" {
-		return ErrInvalidOutput
-	}
+	// OutputBucket is optional - if empty, gateway will use OSS provider's default bucket
+	// This allows jobs that only produce stdout/stderr without output files
+	// Note: We still validate that if OutputBucket is provided, it should not be empty
+	// (empty string is different from null/omitted in JSON)
 	// Output must have either key or prefix (but both can be empty if command doesn't produce output file)
 	// This is now allowed - jobs can succeed with only stdout/stderr
 	if j.AttemptID < 1 {

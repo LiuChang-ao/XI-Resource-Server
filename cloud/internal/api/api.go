@@ -164,10 +164,8 @@ func (h *Handler) HandleCreateJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "input_bucket and input_key must both be provided or both be empty (OSS keys only, not file content)", http.StatusBadRequest)
 		return
 	}
-	if req.OutputBucket == "" {
-		http.Error(w, "output_bucket is required (OSS keys only, not file content)", http.StatusBadRequest)
-		return
-	}
+	// Output bucket is optional - if not provided, gateway will use OSS provider's default bucket
+	// This allows jobs that only produce stdout/stderr without output files
 
 	// Generate job ID
 	jobID := uuid.New().String()

@@ -323,6 +323,12 @@ func TestHandleCreateJob_ValidateRequiredFields(t *testing.T) {
 		t.Errorf("Expected status 400, got %d: %s", resp.StatusCode, string(body))
 	}
 
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	if !strings.Contains(bodyStr, "input_bucket and input_key must both be provided") {
+		t.Errorf("Expected error message about input_bucket and input_key, got: %s", bodyStr)
+	}
+
 	// Test: Missing input_bucket but has input_key (should fail)
 	reqBody2 := CreateJobRequest{
 		InputKey:     "test-key",
@@ -343,6 +349,52 @@ func TestHandleCreateJob_ValidateRequiredFields(t *testing.T) {
 	if resp2.StatusCode != http.StatusBadRequest {
 		body, _ := io.ReadAll(resp2.Body)
 		t.Errorf("Expected status 400, got %d: %s", resp2.StatusCode, string(body))
+	}
+
+	body2, _ := io.ReadAll(resp2.Body)
+	bodyStr2 := string(body2)
+	if !strings.Contains(bodyStr2, "input_bucket and input_key must both be provided") {
+		t.Errorf("Expected error message about input_bucket and input_key, got: %s", bodyStr2)
+	}
+}
+
+// TestHandleCreateJob_ValidateInputFields_JSONMissingField tests the case where
+// JSON request doesn't include input_key field at all (not just empty string)
+func TestHandleCreateJob_ValidateInputFields_JSONMissingField(t *testing.T) {
+	server, _, cleanup := setupTestServer(t, false)
+	defer cleanup()
+
+	// Test: JSON with input_bucket but missing input_key field entirely
+	// This simulates a request like: {"input_bucket": "test", "output_bucket": "test"}
+	// When input_key is missing from JSON, Go unmarshals it as empty string ""
+	reqBodyMap := map[string]interface{}{
+		"input_bucket":  "test-bucket",
+		"output_bucket": "test-bucket",
+		// Note: input_key is intentionally omitted
+	}
+
+	jsonData, err := json.Marshal(reqBodyMap)
+	if err != nil {
+		t.Fatalf("Failed to marshal request: %v", err)
+	}
+
+	resp, err := http.Post(server.URL+"/api/jobs", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Should fail because input_bucket is provided but input_key is empty (missing from JSON)
+	if resp.StatusCode != http.StatusBadRequest {
+		body, _ := io.ReadAll(resp.Body)
+		t.Errorf("Expected status 400, got %d: %s", resp.StatusCode, string(body))
+		return
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	if !strings.Contains(bodyStr, "input_bucket and input_key must both be provided") {
+		t.Errorf("Expected error message about input_bucket and input_key, got: %s", bodyStr)
 	}
 }
 
@@ -407,6 +459,70 @@ func TestHandleCreateJob_NoInputFile(t *testing.T) {
 	}
 
 	t.Logf("Created job without input: %s", response.JobID)
+}
+
+// TestHandleCreateJob_NoInputNoOutput tests creating a job with neither input nor output files
+// This simulates jobs that only produce stdout/stderr without any file I/O
+func TestHandleCreateJob_NoInputNoOutput(t *testing.T) {
+	// Use InMemoryQueue for stable testing without Redis dependency
+	inMemoryQueue := queue.NewInMemoryQueue()
+	server, _, cleanup := setupTestServerWithQueue(t, inMemoryQueue, false)
+	defer cleanup()
+
+	// Create job without input files and without output bucket
+	// JSON with null values should be handled correctly
+	reqBodyMap := map[string]interface{}{
+		"input_bucket":     nil,
+		"input_key":        nil,
+		"output_bucket":    nil,
+		"output_key":       nil,
+		"output_prefix":    nil,
+		"output_extension": "json",
+		"attempt_id":       1,
+		"command":          "echo Hello World",
+	}
+
+	jsonData, err := json.Marshal(reqBodyMap)
+	if err != nil {
+		t.Fatalf("Failed to marshal request: %v", err)
+	}
+
+	resp, err := http.Post(server.URL+"/api/jobs", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Errorf("Expected status 201, got %d: %s", resp.StatusCode, string(body))
+		return
+	}
+
+	var response CreateJobResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if response.JobID == "" {
+		t.Error("Expected job_id in response, got empty")
+	}
+
+	if response.Status != "PENDING" {
+		t.Errorf("Expected status PENDING, got %s", response.Status)
+	}
+
+	// Verify job was enqueued
+	ctx := context.Background()
+	size, err := inMemoryQueue.Size(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get queue size: %v", err)
+	}
+	if size != 1 {
+		t.Errorf("Expected queue size 1, got %d", size)
+	}
+
+	t.Logf("Created job without input and output: %s", response.JobID)
 }
 
 func TestHandleCreateJob_RejectEmptyBody(t *testing.T) {
