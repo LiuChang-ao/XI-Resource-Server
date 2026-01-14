@@ -361,52 +361,52 @@ func TestClient_DownloadInputToFile_ExtensionPreservation(t *testing.T) {
 	client.httpClient = &http.Client{Timeout: 5 * time.Second}
 
 	testCases := []struct {
-		name      string
-		inputKey  string
-		jobID     string
-		wantExt   string
+		name       string
+		inputKey   string
+		jobID      string
+		wantExt    string
 		wantInName bool
 	}{
 		{
-			name:      "jpg extension preserved",
-			inputKey:  "inputs/image.jpg",
-			jobID:     "test-job-001",
-			wantExt:   ".jpg",
+			name:       "jpg extension preserved",
+			inputKey:   "inputs/image.jpg",
+			jobID:      "test-job-001",
+			wantExt:    ".jpg",
 			wantInName: true,
 		},
 		{
-			name:      "png extension preserved",
-			inputKey:  "zfc_files/ui_tap/281.png",
-			jobID:     "test-job-002",
-			wantExt:   ".png",
+			name:       "png extension preserved",
+			inputKey:   "zfc_files/ui_tap/281.png",
+			jobID:      "test-job-002",
+			wantExt:    ".png",
 			wantInName: true,
 		},
 		{
-			name:      "json extension preserved",
-			inputKey:  "data/input.json",
-			jobID:     "test-job-003",
-			wantExt:   ".json",
+			name:       "json extension preserved",
+			inputKey:   "data/input.json",
+			jobID:      "test-job-003",
+			wantExt:    ".json",
 			wantInName: true,
 		},
 		{
-			name:      "no extension in input_key",
-			inputKey:  "inputs/data",
-			jobID:     "test-job-004",
-			wantExt:   "",
+			name:       "no extension in input_key",
+			inputKey:   "inputs/data",
+			jobID:      "test-job-004",
+			wantExt:    "",
 			wantInName: false,
 		},
 		{
-			name:      "empty input_key",
-			inputKey:  "",
-			jobID:     "test-job-005",
-			wantExt:   "",
+			name:       "empty input_key",
+			inputKey:   "",
+			jobID:      "test-job-005",
+			wantExt:    "",
 			wantInName: false,
 		},
 		{
-			name:      "multiple dots in path",
-			inputKey:  "inputs/data.backup.tar.gz",
-			jobID:     "test-job-006",
-			wantExt:   ".gz",
+			name:       "multiple dots in path",
+			inputKey:   "inputs/data.backup.tar.gz",
+			jobID:      "test-job-006",
+			wantExt:    ".gz",
 			wantInName: true,
 		},
 	}
