@@ -212,6 +212,7 @@ func TestClient_HandleJobAssigned_Concurrency(t *testing.T) {
 		InputDownload: &control.OSSAccess{
 			Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: inputServer.URL},
 		},
+		InputKey: "inputs/job-1/input.bin", // Required for download to proceed
 		OutputUpload: &control.OSSAccess{
 			Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: outputServer.URL},
 		},
@@ -245,6 +246,7 @@ func TestClient_HandleJobAssigned_Concurrency(t *testing.T) {
 		InputDownload: &control.OSSAccess{
 			Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: inputServer.URL},
 		},
+		InputKey: "inputs/job-2/input.bin", // Required for download to proceed
 		OutputUpload: &control.OSSAccess{
 			Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: outputServer.URL},
 		},

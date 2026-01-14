@@ -378,9 +378,10 @@ func (c *Client) processJob(assigned *control.JobAssigned) {
 	}
 
 	// Download input if provided (input is optional - jobs can run without input files)
+	// Check both InputDownload and InputKey to ensure input is actually provided
 	var inputFile string
 	inputAccess := assigned.InputDownload
-	if inputAccess != nil {
+	if inputAccess != nil && assigned.InputKey != "" {
 		// Get presigned URL from OSSAccess
 		var inputURL string
 		switch auth := inputAccess.Auth.(type) {

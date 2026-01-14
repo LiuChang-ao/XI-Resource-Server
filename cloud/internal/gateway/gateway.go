@@ -408,7 +408,8 @@ func (g *Gateway) handleRequestJob(agentConn *AgentConnection, envelope *control
 	}
 	
 	// Only include input fields if input is provided
-	if inputAccess != nil {
+	// Double-check InputKey is not empty to prevent agent from trying to download empty input
+	if inputAccess != nil && j.InputKey != "" {
 		jobAssignedMsg.InputDownload = inputAccess
 		jobAssignedMsg.InputKey = j.InputKey
 	}
