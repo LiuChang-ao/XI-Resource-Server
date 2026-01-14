@@ -338,10 +338,15 @@ func (g *Gateway) handleRequestJob(agentConn *AgentConnection, envelope *control
 	outputKey := fmt.Sprintf("%soutput.%s", outputPrefix, outputExtension)
 
 	// Fix 3: Generate presigned URLs with failure compensation
-	// Input is optional - only generate input download URL if input is provided
+	// Input is optional - only generate input download URL if BOTH InputBucket AND InputKey are provided
+	// CRITICAL: Do NOT generate URL if either InputBucket or InputKey is empty
+	// This ensures we never generate URLs for jobs without input
 	var inputDownloadURL string
 	var inputAccess *control.OSSAccess
-	if j.InputBucket != "" && j.InputKey != "" {
+	
+	// Only generate input download URL if BOTH fields are non-empty
+	hasInput := j.InputBucket != "" && j.InputKey != ""
+	if hasInput {
 		var err error
 		inputDownloadURL, err = g.ossProvider.GenerateDownloadURL(ctx, j.InputKey)
 		if err != nil {
@@ -351,6 +356,12 @@ func (g *Gateway) handleRequestJob(agentConn *AgentConnection, envelope *control
 			return
 		}
 		inputAccess = &control.OSSAccess{Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: inputDownloadURL}}
+	} else {
+		// Log warning if InputKey is set but InputBucket is empty (data inconsistency)
+		if j.InputKey != "" && j.InputBucket == "" {
+			log.Printf("Warning: Job %s has InputKey=%s but InputBucket is empty, treating as no input", jobID, j.InputKey)
+		}
+		// Don't generate URL - job has no input
 	}
 
 	outputUploadURL, err := g.ossProvider.GenerateUploadURL(ctx, outputKey)
