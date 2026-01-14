@@ -516,3 +516,176 @@ func TestClient_ExecuteCommand_EmptyCommand(t *testing.T) {
 		t.Errorf("Expected error about command being required, got: %v", err)
 	}
 }
+
+// TestClient_ProcessJob_NoInput tests that jobs without input files are handled correctly
+func TestClient_ProcessJob_NoInput(t *testing.T) {
+	// Setup HTTP test server for output upload only
+	var uploadedData []byte
+
+	outputServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("Expected PUT, got %s", r.Method)
+		}
+		uploadedData, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer outputServer.Close()
+
+	// Create client
+	client := New("ws://test", "test-agent", "test-token", 1)
+	client.httpClient = &http.Client{Timeout: 5 * time.Second}
+
+	// Create JobAssigned WITHOUT input (InputDownload is nil, InputKey is empty)
+	var command string
+	if runtime.GOOS == "windows" {
+		command = `cmd /c echo test output > {output}`
+	} else {
+		command = `echo test output > {output}`
+	}
+
+	jobAssigned := &control.JobAssigned{
+		JobId:     "test-job-no-input",
+		AttemptId: 1,
+		// InputDownload is nil - no input file
+		// InputKey is empty string (default)
+		OutputUpload: &control.OSSAccess{
+			Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: outputServer.URL},
+		},
+		OutputKey: "jobs/test-job-no-input/1/output.bin",
+		Command:   command,
+	}
+
+	// Process job (should succeed without trying to download input)
+	client.processJob(jobAssigned)
+
+	// Verify output was uploaded
+	if len(uploadedData) == 0 {
+		t.Error("Expected output to be uploaded, but no data was uploaded")
+	}
+
+	outputStr := string(uploadedData)
+	if len(outputStr) == 0 {
+		t.Error("Output should not be empty")
+	}
+	t.Logf("Output received (no input): %s", outputStr)
+}
+
+// TestClient_ProcessJob_NoInput_WithInputDownloadButEmptyKey tests defensive case:
+// InputDownload is set but InputKey is empty - should skip download
+func TestClient_ProcessJob_NoInput_WithInputDownloadButEmptyKey(t *testing.T) {
+	// Setup HTTP test server for output upload only
+	var uploadedData []byte
+	var downloadAttempted bool
+
+	// This server should NOT be called for input download
+	inputServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		downloadAttempted = true
+		t.Error("Input download should NOT be attempted when InputKey is empty")
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer inputServer.Close()
+
+	outputServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("Expected PUT, got %s", r.Method)
+		}
+		uploadedData, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer outputServer.Close()
+
+	// Create client
+	client := New("ws://test", "test-agent", "test-token", 1)
+	client.httpClient = &http.Client{Timeout: 5 * time.Second}
+
+	// Create JobAssigned with InputDownload set but InputKey empty
+	// This is a defensive test - server should not send this, but agent should handle it gracefully
+	var command string
+	if runtime.GOOS == "windows" {
+		command = `cmd /c echo test output > {output}`
+	} else {
+		command = `echo test output > {output}`
+	}
+
+	jobAssigned := &control.JobAssigned{
+		JobId:     "test-job-no-input-key",
+		AttemptId: 1,
+		InputDownload: &control.OSSAccess{
+			Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: inputServer.URL},
+		},
+		InputKey: "", // Empty - should skip download
+		OutputUpload: &control.OSSAccess{
+			Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: outputServer.URL},
+		},
+		OutputKey: "jobs/test-job-no-input-key/1/output.bin",
+		Command:   command,
+	}
+
+	// Process job (should skip download and succeed)
+	client.processJob(jobAssigned)
+
+	// Verify download was NOT attempted
+	if downloadAttempted {
+		t.Error("Input download should NOT be attempted when InputKey is empty, even if InputDownload is set")
+	}
+
+	// Verify output was uploaded
+	if len(uploadedData) == 0 {
+		t.Error("Expected output to be uploaded, but no data was uploaded")
+	}
+}
+
+// TestClient_ProcessJob_NoInput_404Error tests that 404 errors during download are handled correctly
+// This test verifies that if InputDownload and InputKey are set but file doesn't exist, job fails gracefully
+func TestClient_ProcessJob_NoInput_404Error(t *testing.T) {
+	// Setup HTTP test server that returns 404 for input download
+	var downloadAttempted bool
+	notFoundServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		downloadAttempted = true
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer notFoundServer.Close()
+
+	outputServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer outputServer.Close()
+
+	// Create client
+	client := New("ws://test", "test-agent", "test-token", 1)
+	client.httpClient = &http.Client{Timeout: 5 * time.Second}
+
+	// Create JobAssigned with InputDownload and InputKey set, but URL returns 404
+	var command string
+	if runtime.GOOS == "windows" {
+		command = `cmd /c echo test output > {output}`
+	} else {
+		command = `echo test output > {output}`
+	}
+
+	jobAssigned := &control.JobAssigned{
+		JobId:     "test-job-404",
+		AttemptId: 1,
+		InputDownload: &control.OSSAccess{
+			Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: notFoundServer.URL},
+		},
+		InputKey: "inputs/test-job-404/input.bin", // Key is set, but file doesn't exist
+		OutputUpload: &control.OSSAccess{
+			Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: outputServer.URL},
+		},
+		OutputKey: "jobs/test-job-404/1/output.bin",
+		Command:   command,
+	}
+
+	// Process job (should fail with 404 error)
+	client.processJob(jobAssigned)
+
+	// Verify download was attempted (since InputKey is set)
+	if !downloadAttempted {
+		t.Error("Expected download to be attempted when InputKey is set, even if file doesn't exist")
+	}
+
+	// Note: We can't easily verify the status report without mocking WebSocket,
+	// but the test verifies that the download attempt happens and fails correctly.
+	// The actual status reporting is tested in integration tests.
+}

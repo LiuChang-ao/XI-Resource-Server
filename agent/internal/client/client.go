@@ -435,10 +435,10 @@ func (c *Client) processJob(assigned *control.JobAssigned) {
 		log.Printf("Failed to execute command for job %s: %v", jobID, err)
 		// Report FAILED with stderr (cmdResult may still contain stdout/stderr even on error)
 		if cmdResult != nil {
-			c.reportJobStatusWithOutput(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, 
+			c.reportJobStatusWithOutput(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED,
 				fmt.Sprintf("Command execution failed: %v", err), "", cmdResult.Stdout, cmdResult.Stderr)
 		} else {
-			c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, 
+			c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED,
 				fmt.Sprintf("Command execution failed: %v", err), "")
 		}
 		return
@@ -450,7 +450,7 @@ func (c *Client) processJob(assigned *control.JobAssigned) {
 		outputAccess := assigned.OutputUpload
 		if outputAccess == nil {
 			log.Printf("JobAssigned missing output_upload for job %s", jobID)
-			c.reportJobStatusWithOutput(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, 
+			c.reportJobStatusWithOutput(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED,
 				"Missing output_upload", "", cmdResult.Stdout, cmdResult.Stderr)
 			return
 		}
@@ -463,12 +463,12 @@ func (c *Client) processJob(assigned *control.JobAssigned) {
 		case *control.OSSAccess_Sts:
 			// STS not implemented in M1
 			log.Printf("STS not supported in M1 for job %s", jobID)
-			c.reportJobStatusWithOutput(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, 
+			c.reportJobStatusWithOutput(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED,
 				"STS not supported", "", cmdResult.Stdout, cmdResult.Stderr)
 			return
 		default:
 			log.Printf("Invalid output_upload auth type for job %s", jobID)
-			c.reportJobStatusWithOutput(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, 
+			c.reportJobStatusWithOutput(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED,
 				"Invalid output_upload", "", cmdResult.Stdout, cmdResult.Stderr)
 			return
 		}
@@ -476,7 +476,7 @@ func (c *Client) processJob(assigned *control.JobAssigned) {
 		// Upload output
 		if err := c.uploadOutput(outputURL, cmdResult.OutputData); err != nil {
 			log.Printf("Failed to upload output for job %s: %v", jobID, err)
-			c.reportJobStatusWithOutput(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, 
+			c.reportJobStatusWithOutput(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED,
 				fmt.Sprintf("Upload failed: %v", err), "", cmdResult.Stdout, cmdResult.Stderr)
 			return
 		}
@@ -488,7 +488,7 @@ func (c *Client) processJob(assigned *control.JobAssigned) {
 	}
 
 	// Report SUCCEEDED with output_key (may be empty if no output file) and stdout/stderr
-	c.reportJobStatusWithOutput(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_SUCCEEDED, "", 
+	c.reportJobStatusWithOutput(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_SUCCEEDED, "",
 		outputKeyToReport, cmdResult.Stdout, cmdResult.Stderr)
 }
 
@@ -518,11 +518,11 @@ func (c *Client) downloadInput(url string) ([]byte, int64, string, error) {
 
 // stubCompute generates deterministic output based on input
 type StubOutput struct {
-	JobID      string `json:"job_id"`
-	AttemptID  int    `json:"attempt_id"`
-	InputSize  int64  `json:"input_size"`
+	JobID       string `json:"job_id"`
+	AttemptID   int    `json:"attempt_id"`
+	InputSize   int64  `json:"input_size"`
 	InputSHA256 string `json:"input_sha256"`
-	Timestamp  int64  `json:"timestamp"`
+	Timestamp   int64  `json:"timestamp"`
 }
 
 // stubCompute generates deterministic JSON output
@@ -530,11 +530,11 @@ type StubOutput struct {
 // when command execution is enabled
 func (c *Client) stubCompute(jobID string, attemptID int, inputSize int64, inputSHA256 string) ([]byte, error) {
 	output := StubOutput{
-		JobID:      jobID,
-		AttemptID:  attemptID,
-		InputSize:  inputSize,
+		JobID:       jobID,
+		AttemptID:   attemptID,
+		InputSize:   inputSize,
 		InputSHA256: inputSHA256,
-		Timestamp:  time.Now().Unix(),
+		Timestamp:   time.Now().Unix(),
 	}
 
 	data, err := json.MarshalIndent(output, "", "  ")
@@ -587,10 +587,10 @@ func (c *Client) downloadInputToFile(url, jobID, inputKey string) (string, error
 
 // CommandResult contains the result of command execution
 type CommandResult struct {
-	OutputData []byte // Output file content (if exists)
-	Stdout     string // Command stdout
-	Stderr     string // Command stderr
-	HasOutputFile bool // Whether output file exists
+	OutputData    []byte // Output file content (if exists)
+	Stdout        string // Command stdout
+	Stderr        string // Command stderr
+	HasOutputFile bool   // Whether output file exists
 }
 
 // executeCommand executes the given command with input/output file placeholders
@@ -634,9 +634,9 @@ func (c *Client) executeCommand(command string, inputFile, outputFile string) (*
 	if err != nil {
 		log.Printf("Command execution failed after %v: %v, stderr: %s", executionTime, err, stderrStr)
 		return &CommandResult{
-			OutputData: nil,
-			Stdout:     truncateString(stdoutStr, 10000), // Limit to 10KB
-			Stderr:     truncateString(stderrStr, 10000), // Limit to 10KB
+			OutputData:    nil,
+			Stdout:        truncateString(stdoutStr, 10000), // Limit to 10KB
+			Stderr:        truncateString(stderrStr, 10000), // Limit to 10KB
 			HasOutputFile: false,
 		}, fmt.Errorf("command execution failed: %v", err)
 	}
@@ -648,9 +648,9 @@ func (c *Client) executeCommand(command string, inputFile, outputFile string) (*
 	hasOutputFile := err == nil
 
 	result := &CommandResult{
-		OutputData: outputData,
-		Stdout:     truncateString(stdoutStr, 10000), // Limit to 10KB
-		Stderr:     truncateString(stderrStr, 10000), // Limit to 10KB
+		OutputData:    outputData,
+		Stdout:        truncateString(stdoutStr, 10000), // Limit to 10KB
+		Stderr:        truncateString(stderrStr, 10000), // Limit to 10KB
 		HasOutputFile: hasOutputFile,
 	}
 

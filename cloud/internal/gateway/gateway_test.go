@@ -438,6 +438,149 @@ func TestGateway_HandleRequestJob_NoInputFile(t *testing.T) {
 	}
 }
 
+// TestGateway_HandleRequestJob_NoInput_EdgeCases tests edge cases where InputBucket or InputKey might be partially set
+func TestGateway_HandleRequestJob_NoInput_EdgeCases(t *testing.T) {
+	// Test case 1: InputBucket set but InputKey empty
+	t.Run("InputBucketSetButInputKeyEmpty", func(t *testing.T) {
+		mockReg := newMockRegistry()
+		mockStore := newMockJobStore()
+		mockQueue := newMockQueue()
+		mockOSS := newMockOSSProvider()
+		gw := New(mockReg, mockStore, mockQueue, mockOSS, true)
+
+		agentID := "agent-123"
+		mockReg.Register(agentID, "test-host", 1)
+		mockReg.UpdateHeartbeat(agentID, false, 0)
+		jobID := uuid.New().String()
+		testJob := &job.Job{
+			JobID:        jobID,
+			CreatedAt:    time.Now(),
+			Status:       job.StatusPending,
+			InputBucket:  "input-bucket", // Set
+			InputKey:     "",             // Empty - should not generate InputDownload
+			OutputBucket: "output-bucket",
+			AttemptID:    1,
+			Command:      "echo test",
+		}
+		mockStore.Create(testJob)
+		mockQueue.Enqueue(context.Background(), jobID)
+
+		agentConn := &AgentConnection{
+			AgentID:   agentID,
+			SendChan:  make(chan []byte, 256),
+			CloseChan: make(chan struct{}),
+		}
+
+		envelope := &control.Envelope{
+			AgentId:   agentID,
+			RequestId: uuid.New().String(),
+			Timestamp: time.Now().UnixMilli(),
+			Payload: &control.Envelope_RequestJob{
+				RequestJob: &control.RequestJob{
+					AgentId: agentID,
+				},
+			},
+		}
+
+		gw.handleRequestJob(agentConn, envelope, envelope.GetRequestJob())
+
+		select {
+		case msg := <-agentConn.SendChan:
+			var assignedEnvelope control.Envelope
+			if err := proto.Unmarshal(msg, &assignedEnvelope); err != nil {
+				t.Fatalf("Failed to unmarshal JobAssigned: %v", err)
+			}
+
+			jobAssigned := assignedEnvelope.GetJobAssigned()
+			if jobAssigned == nil {
+				t.Fatal("Expected JobAssigned message")
+			}
+
+			// Verify InputDownload is NOT set when InputKey is empty
+			if jobAssigned.InputDownload != nil {
+				t.Error("InputDownload should be nil when InputKey is empty, even if InputBucket is set")
+			}
+
+			if jobAssigned.InputKey != "" {
+				t.Errorf("InputKey should be empty, got: %s", jobAssigned.InputKey)
+			}
+		case <-time.After(1 * time.Second):
+			t.Fatal("No JobAssigned message received")
+		}
+	})
+
+	// Test case 2: InputKey set but InputBucket empty
+	t.Run("InputKeySetButInputBucketEmpty", func(t *testing.T) {
+		mockReg := newMockRegistry()
+		mockStore := newMockJobStore()
+		mockQueue := newMockQueue()
+		mockOSS := newMockOSSProvider()
+		gw := New(mockReg, mockStore, mockQueue, mockOSS, true)
+
+		agentID := "agent-456" // Use different agent ID to avoid capacity conflicts
+		mockReg.Register(agentID, "test-host", 1)
+		mockReg.UpdateHeartbeat(agentID, false, 0)
+
+		jobID := uuid.New().String()
+		testJob := &job.Job{
+			JobID:        jobID,
+			CreatedAt:    time.Now(),
+			Status:       job.StatusPending,
+			InputBucket:  "",             // Empty
+			InputKey:     "inputs/test", // Set - but should not generate InputDownload
+			OutputBucket: "output-bucket",
+			AttemptID:    1,
+			Command:      "echo test",
+		}
+		mockStore.Create(testJob)
+		mockQueue.Enqueue(context.Background(), jobID)
+
+		agentConn := &AgentConnection{
+			AgentID:   agentID,
+			SendChan:  make(chan []byte, 256),
+			CloseChan: make(chan struct{}),
+		}
+
+		envelope := &control.Envelope{
+			AgentId:   agentID,
+			RequestId: uuid.New().String(),
+			Timestamp: time.Now().UnixMilli(),
+			Payload: &control.Envelope_RequestJob{
+				RequestJob: &control.RequestJob{
+					AgentId: agentID,
+				},
+			},
+		}
+
+		gw.handleRequestJob(agentConn, envelope, envelope.GetRequestJob())
+
+		select {
+		case msg := <-agentConn.SendChan:
+			var assignedEnvelope control.Envelope
+			if err := proto.Unmarshal(msg, &assignedEnvelope); err != nil {
+				t.Fatalf("Failed to unmarshal JobAssigned: %v", err)
+			}
+
+			jobAssigned := assignedEnvelope.GetJobAssigned()
+			if jobAssigned == nil {
+				t.Fatal("Expected JobAssigned message")
+			}
+
+			// Verify InputDownload is NOT set when InputBucket is empty
+			if jobAssigned.InputDownload != nil {
+				t.Error("InputDownload should be nil when InputBucket is empty, even if InputKey is set")
+			}
+
+			// InputKey should also not be set in the message
+			if jobAssigned.InputKey != "" {
+				t.Errorf("InputKey should not be set when InputBucket is empty, got: %s", jobAssigned.InputKey)
+			}
+		case <-time.After(1 * time.Second):
+			t.Fatal("No JobAssigned message received")
+		}
+	})
+}
+
 func TestGateway_HandleRequestJob_EmptyQueue(t *testing.T) {
 	// Setup
 	mockReg := newMockRegistry()
