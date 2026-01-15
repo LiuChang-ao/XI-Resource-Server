@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     assigned_agent_id VARCHAR(255) COMMENT 'ID of agent assigned to this job',
     lease_id VARCHAR(255) COMMENT 'Lease ID for job execution',
     lease_deadline DATETIME COMMENT 'Lease expiration time',
-    command VARCHAR(1024) COMMENT 'Command to execute on agent',
+    command VARCHAR(8192) COMMENT 'Command to execute on agent',
     CONSTRAINT chk_attempt_id CHECK (attempt_id >= 1),
     CONSTRAINT chk_status CHECK (status IN ('PENDING', 'ASSIGNED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELED', 'LOST'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Job management table';

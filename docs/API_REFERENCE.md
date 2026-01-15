@@ -449,7 +449,7 @@ while True:
 2. **命令过长**
    ```json
    {
-     "error": "command exceeds maximum length of 1024 characters"
+     "error": "command exceeds maximum length of 8192 characters"
    }
    ```
 

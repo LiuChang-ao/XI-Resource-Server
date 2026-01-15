@@ -498,7 +498,7 @@ func (s *MySQLStore) initSchema() error {
 		assigned_agent_id VARCHAR(255),
 		lease_id VARCHAR(255),
 		lease_deadline DATETIME,
-		command VARCHAR(1024),
+		command VARCHAR(8192),
 		stdout TEXT,
 		stderr TEXT,
 		CHECK (attempt_id >= 1),
@@ -516,7 +516,7 @@ func (s *MySQLStore) initSchema() error {
 		name string
 		typ  string
 	}{
-		{"command", "VARCHAR(1024)"},
+		{"command", "VARCHAR(8192)"},
 		{"output_extension", "VARCHAR(50)"},
 		{"stdout", "TEXT"},
 		{"stderr", "TEXT"},

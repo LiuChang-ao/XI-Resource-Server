@@ -184,7 +184,7 @@ print(f"Status: {result['status']}")  # 应该是 "PENDING"
 2. **验证参数**: 
    - 检查`input_bucket`和`input_key`是否存在
    - 检查`output_bucket`是否存在
-   - 验证`command`长度不超过1024字符
+   - 验证`command`长度不超过8192字符
    - **拒绝**`multipart/form-data`（防止文件上传绕过）
 3. **创建作业记录**:
    - 生成`job_id` (UUID)

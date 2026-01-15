@@ -177,8 +177,9 @@ func (h *Handler) HandleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate command length if provided
-	if len(req.Command) > 1024 {
-		http.Error(w, "command exceeds maximum length of 1024 characters", http.StatusBadRequest)
+	const maxCommandLength = 8192 // 8KB should be sufficient for most command lines
+	if len(req.Command) > maxCommandLength {
+		http.Error(w, fmt.Sprintf("command exceeds maximum length of %d characters", maxCommandLength), http.StatusBadRequest)
 		return
 	}
 
