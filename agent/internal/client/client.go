@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 	control "github.com/xiresource/proto/control"
@@ -631,6 +632,10 @@ func (c *Client) executeCommand(command string, inputFile, outputFile string) (*
 	stdoutStr := stdout.String()
 	stderrStr := stderr.String()
 
+	// Sanitize to ensure valid UTF-8 for protobuf marshaling
+	stdoutStr = sanitizeUTF8(stdoutStr)
+	stderrStr = sanitizeUTF8(stderrStr)
+
 	if err != nil {
 		log.Printf("Command execution failed after %v: %v, stderr: %s", executionTime, err, stderrStr)
 		return &CommandResult{
@@ -676,6 +681,32 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen] + "... (truncated)"
 }
 
+// sanitizeUTF8 ensures the string contains only valid UTF-8 by replacing invalid bytes
+// with the UTF-8 replacement character (U+FFFD). This is necessary because command
+// output on Windows may contain non-UTF-8 bytes (e.g., from cmd.exe with GBK encoding)
+// that would cause protobuf marshaling to fail.
+func sanitizeUTF8(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	// Replace invalid UTF-8 sequences with the replacement character (U+FFFD)
+	// This uses a manual implementation instead of strings.ToValidUTF8 to ensure
+	// consistent behavior across Go versions
+	var b strings.Builder
+	b.Grow(len(s))
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		if r == utf8.RuneError && size == 1 {
+			// Invalid UTF-8 byte found, replace with replacement character
+			b.WriteRune('\uFFFD')
+		} else {
+			b.WriteRune(r)
+		}
+		s = s[size:]
+	}
+	return b.String()
+}
+
 // uploadOutput uploads output to presigned URL
 func (c *Client) uploadOutput(url string, data []byte) error {
 	req, err := http.NewRequest("PUT", url, bytes.NewReader(data))
@@ -706,6 +737,11 @@ func (c *Client) reportJobStatus(jobID string, attemptID int, status control.Job
 
 // reportJobStatusWithOutput reports job status to the server with stdout/stderr
 func (c *Client) reportJobStatusWithOutput(jobID string, attemptID int, status control.JobStatusEnum, message, outputKey, stdout, stderr string) {
+	// Sanitize strings to ensure valid UTF-8 for protobuf marshaling
+	stdout = sanitizeUTF8(stdout)
+	stderr = sanitizeUTF8(stderr)
+	message = sanitizeUTF8(message)
+
 	jobStatus := &control.JobStatus{
 		JobId:     jobID,
 		AttemptId: int32(attemptID),
