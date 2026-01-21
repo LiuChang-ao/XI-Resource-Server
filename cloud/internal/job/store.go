@@ -33,6 +33,9 @@ type Store interface {
 	// UpdateStdoutStderr updates the stdout and stderr for a job
 	UpdateStdoutStderr(jobID string, stdout, stderr string) error
 
+	// UpdateMessage updates the message for a job
+	UpdateMessage(jobID string, message string) error
+
 	// List returns a list of jobs (with optional filters)
 	List(limit int, offset int, status *Status) ([]*Job, error)
 
@@ -88,6 +91,7 @@ func (s *SQLiteStore) initSchema() error {
 		forward_body TEXT,
 		forward_timeout INTEGER,
 		input_forward_mode TEXT,
+		message TEXT,
 		stdout TEXT,
 		stderr TEXT,
 		CHECK (attempt_id >= 1),
@@ -118,6 +122,7 @@ func (s *SQLiteStore) initSchema() error {
 		"forward_body TEXT",
 		"forward_timeout INTEGER",
 		"input_forward_mode TEXT",
+		"message TEXT",
 	}
 	for _, col := range newColumns {
 		_, err = s.db.Exec(`ALTER TABLE jobs ADD COLUMN ` + col)
@@ -145,8 +150,8 @@ func (s *SQLiteStore) Create(job *Job) error {
 		output_bucket, output_key, output_prefix, output_extension, attempt_id,
 		assigned_agent_id, lease_id, lease_deadline, command, job_type,
 		forward_url, forward_method, forward_headers, forward_body, forward_timeout, input_forward_mode,
-		stdout, stderr
-	) VALUES (?, datetime(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		message, stdout, stderr
+	) VALUES (?, datetime(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	// Format time for SQLite
@@ -179,6 +184,7 @@ func (s *SQLiteStore) Create(job *Job) error {
 		job.ForwardBody,
 		job.ForwardTimeout,
 		job.InputForward,
+		job.Message,
 		job.Stdout,
 		job.Stderr,
 	)
@@ -198,7 +204,7 @@ func (s *SQLiteStore) Get(jobID string) (*Job, error) {
 		output_bucket, output_key, output_prefix, output_extension, attempt_id,
 		assigned_agent_id, lease_id, lease_deadline, command, job_type,
 		forward_url, forward_method, forward_headers, forward_body, forward_timeout, input_forward_mode,
-		stdout, stderr
+		message, stdout, stderr
 	FROM jobs
 	WHERE job_id = ?
 	`
@@ -215,6 +221,7 @@ func (s *SQLiteStore) Get(jobID string) (*Job, error) {
 	var forwardBody sql.NullString
 	var forwardTimeout sql.NullInt64
 	var inputForward sql.NullString
+	var message sql.NullString
 	var stdout sql.NullString
 	var stderr sql.NullString
 	var outputExtension sql.NullString
@@ -241,6 +248,7 @@ func (s *SQLiteStore) Get(jobID string) (*Job, error) {
 		&forwardBody,
 		&forwardTimeout,
 		&inputForward,
+		&message,
 		&stdout,
 		&stderr,
 	)
@@ -300,6 +308,11 @@ func (s *SQLiteStore) Get(jobID string) (*Job, error) {
 	}
 	if inputForward.Valid {
 		job.InputForward = InputForwardMode(inputForward.String)
+	}
+	if message.Valid {
+		job.Message = message.String
+	} else {
+		job.Message = ""
 	}
 
 	if outputExtension.Valid {
@@ -391,6 +404,16 @@ func (s *SQLiteStore) UpdateStdoutStderr(jobID string, stdout, stderr string) er
 	return nil
 }
 
+// UpdateMessage updates the message for a job
+func (s *SQLiteStore) UpdateMessage(jobID string, message string) error {
+	query := `UPDATE jobs SET message = ? WHERE job_id = ?`
+	_, err := s.db.Exec(query, message, jobID)
+	if err != nil {
+		return fmt.Errorf("failed to update message: %w", err)
+	}
+	return nil
+}
+
 // List returns a list of jobs (with optional filters)
 func (s *SQLiteStore) List(limit int, offset int, status *Status) ([]*Job, error) {
 	query := `
@@ -399,7 +422,7 @@ func (s *SQLiteStore) List(limit int, offset int, status *Status) ([]*Job, error
 		output_bucket, output_key, output_prefix, output_extension, attempt_id,
 		assigned_agent_id, lease_id, lease_deadline, command, job_type,
 		forward_url, forward_method, forward_headers, forward_body, forward_timeout, input_forward_mode,
-		stdout, stderr
+		message, stdout, stderr
 	FROM jobs
 	`
 	args := []interface{}{}
@@ -432,6 +455,7 @@ func (s *SQLiteStore) List(limit int, offset int, status *Status) ([]*Job, error
 		var forwardBody sql.NullString
 		var forwardTimeout sql.NullInt64
 		var inputForward sql.NullString
+		var message sql.NullString
 		var stdout sql.NullString
 		var stderr sql.NullString
 		var outputExtension sql.NullString
@@ -458,6 +482,7 @@ func (s *SQLiteStore) List(limit int, offset int, status *Status) ([]*Job, error
 			&forwardBody,
 			&forwardTimeout,
 			&inputForward,
+			&message,
 			&stdout,
 			&stderr,
 		)
@@ -512,6 +537,11 @@ func (s *SQLiteStore) List(limit int, offset int, status *Status) ([]*Job, error
 		}
 		if inputForward.Valid {
 			job.InputForward = InputForwardMode(inputForward.String)
+		}
+		if message.Valid {
+			job.Message = message.String
+		} else {
+			job.Message = ""
 		}
 
 		if outputExtension.Valid {
@@ -610,6 +640,7 @@ func (s *MySQLStore) initSchema() error {
 		forward_body LONGTEXT,
 		forward_timeout INT,
 		input_forward_mode VARCHAR(50),
+		message TEXT,
 		stdout TEXT,
 		stderr TEXT,
 		CHECK (attempt_id >= 1),
@@ -638,6 +669,7 @@ func (s *MySQLStore) initSchema() error {
 		{"forward_body", "LONGTEXT"},
 		{"forward_timeout", "INT"},
 		{"input_forward_mode", "VARCHAR(50)"},
+		{"message", "TEXT"},
 	}
 	for _, col := range newColumns {
 		_, err := s.db.Exec(fmt.Sprintf("ALTER TABLE jobs ADD COLUMN %s %s", col.name, col.typ))
@@ -705,8 +737,8 @@ func (s *MySQLStore) Create(job *Job) error {
 		output_bucket, output_key, output_prefix, output_extension, attempt_id,
 		assigned_agent_id, lease_id, lease_deadline, command, job_type,
 		forward_url, forward_method, forward_headers, forward_body, forward_timeout, input_forward_mode,
-		stdout, stderr
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		message, stdout, stderr
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := s.db.Exec(
@@ -732,6 +764,7 @@ func (s *MySQLStore) Create(job *Job) error {
 		job.ForwardBody,
 		job.ForwardTimeout,
 		job.InputForward,
+		job.Message,
 		job.Stdout,
 		job.Stderr,
 	)
@@ -751,7 +784,7 @@ func (s *MySQLStore) Get(jobID string) (*Job, error) {
 		output_bucket, output_key, output_prefix, output_extension, attempt_id,
 		assigned_agent_id, lease_id, lease_deadline, command, job_type,
 		forward_url, forward_method, forward_headers, forward_body, forward_timeout, input_forward_mode,
-		stdout, stderr
+		message, stdout, stderr
 	FROM jobs
 	WHERE job_id = ?
 	`
@@ -767,6 +800,7 @@ func (s *MySQLStore) Get(jobID string) (*Job, error) {
 	var forwardBody sql.NullString
 	var forwardTimeout sql.NullInt64
 	var inputForward sql.NullString
+	var message sql.NullString
 	var stdout sql.NullString
 	var stderr sql.NullString
 	var outputExtension sql.NullString
@@ -793,6 +827,7 @@ func (s *MySQLStore) Get(jobID string) (*Job, error) {
 		&forwardBody,
 		&forwardTimeout,
 		&inputForward,
+		&message,
 		&stdout,
 		&stderr,
 	)
@@ -841,6 +876,11 @@ func (s *MySQLStore) Get(jobID string) (*Job, error) {
 	}
 	if inputForward.Valid {
 		job.InputForward = InputForwardMode(inputForward.String)
+	}
+	if message.Valid {
+		job.Message = message.String
+	} else {
+		job.Message = ""
 	}
 
 	if outputExtension.Valid {
@@ -932,6 +972,16 @@ func (s *MySQLStore) UpdateStdoutStderr(jobID string, stdout, stderr string) err
 	return nil
 }
 
+// UpdateMessage updates the message for a job
+func (s *MySQLStore) UpdateMessage(jobID string, message string) error {
+	query := `UPDATE jobs SET message = ? WHERE job_id = ?`
+	_, err := s.db.Exec(query, message, jobID)
+	if err != nil {
+		return fmt.Errorf("failed to update message: %w", err)
+	}
+	return nil
+}
+
 // List returns a list of jobs (with optional filters)
 func (s *MySQLStore) List(limit int, offset int, status *Status) ([]*Job, error) {
 	query := `
@@ -940,7 +990,7 @@ func (s *MySQLStore) List(limit int, offset int, status *Status) ([]*Job, error)
 		output_bucket, output_key, output_prefix, output_extension, attempt_id,
 		assigned_agent_id, lease_id, lease_deadline, command, job_type,
 		forward_url, forward_method, forward_headers, forward_body, forward_timeout, input_forward_mode,
-		stdout, stderr
+		message, stdout, stderr
 	FROM jobs
 	`
 	args := []interface{}{}
@@ -972,6 +1022,7 @@ func (s *MySQLStore) List(limit int, offset int, status *Status) ([]*Job, error)
 		var forwardBody sql.NullString
 		var forwardTimeout sql.NullInt64
 		var inputForward sql.NullString
+		var message sql.NullString
 		var stdout sql.NullString
 		var stderr sql.NullString
 		var outputExtension sql.NullString
@@ -998,6 +1049,7 @@ func (s *MySQLStore) List(limit int, offset int, status *Status) ([]*Job, error)
 			&forwardBody,
 			&forwardTimeout,
 			&inputForward,
+			&message,
 			&stdout,
 			&stderr,
 		)
@@ -1042,6 +1094,11 @@ func (s *MySQLStore) List(limit int, offset int, status *Status) ([]*Job, error)
 		}
 		if inputForward.Valid {
 			job.InputForward = InputForwardMode(inputForward.String)
+		}
+		if message.Valid {
+			job.Message = message.String
+		} else {
+			job.Message = ""
 		}
 
 		if outputExtension.Valid {

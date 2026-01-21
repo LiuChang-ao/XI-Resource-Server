@@ -245,6 +245,7 @@ GET /api/jobs/{job_id}
   "forward_body": "",
   "forward_timeout": 0,
   "input_forward_mode": "",
+  "message": "",
   "stdout": "Analysis completed. Output written to: C:\\...\\output.json",
   "stderr": ""
 }
@@ -255,6 +256,7 @@ GET /api/jobs/{job_id}
 - `job_type`: 作业类型（`COMMAND`/`FORWARD_HTTP`）
 - `forward_url`/`forward_method`/`forward_headers`/`forward_body`/`forward_timeout`: 转发作业配置
 - `input_forward_mode`: 输入转发方式（`URL`/`LOCAL_FILE`）
+- `message`: 状态消息/错误详情（例如本地服务返回404）
 - `stdout`: 命令执行的stdout输出（截断到10KB，如果为空则字段为空字符串）
 - `stderr`: 命令执行的stderr输出（截断到10KB，通常在FAILED状态时包含错误信息）
 - `output_key`: 如果命令没有产生输出文件（仅stdout），此字段可能为空字符串

@@ -967,6 +967,7 @@ func (c *Client) processForwardJob(assigned *control.JobAssigned) {
 		if len(respData) > 0 {
 			message = fmt.Sprintf("%s: %s", message, truncateString(sanitizeUTF8(string(respData)), 2000))
 		}
+		log.Printf("Forward HTTP failed for job %s: %s", jobID, message)
 		c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, message, "")
 		return
 	}

@@ -520,6 +520,13 @@ func (g *Gateway) handleJobStatus(agentConn *AgentConnection, envelope *control.
 		return
 	}
 
+	// Persist status message if provided
+	if status.Message != "" {
+		if err := g.jobStore.UpdateMessage(jobID, status.Message); err != nil {
+			log.Printf("Failed to update message for job %s: %v", jobID, err)
+		}
+	}
+
 	// Handle status-specific logic
 	switch newStatus {
 	case job.StatusRunning:

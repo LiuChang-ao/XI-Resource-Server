@@ -91,6 +91,7 @@ type Job struct {
 	ForwardBody     string           `json:"forward_body" db:"forward_body"`             // Raw body for forward job
 	ForwardTimeout  int              `json:"forward_timeout" db:"forward_timeout"`       // Timeout in seconds
 	InputForward    InputForwardMode `json:"input_forward_mode" db:"input_forward_mode"` // Input forwarding mode
+	Message         string           `json:"message" db:"message"`                       // Status message or error details
 }
 
 // Validate validates the job fields

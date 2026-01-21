@@ -129,6 +129,15 @@ func (m *mockJobStore) UpdateStdoutStderr(jobID string, stdout, stderr string) e
 	return nil
 }
 
+func (m *mockJobStore) UpdateMessage(jobID string, message string) error {
+	j, exists := m.jobs[jobID]
+	if !exists {
+		return job.ErrJobNotFound
+	}
+	j.Message = message
+	return nil
+}
+
 func (m *mockJobStore) List(limit int, offset int, status *job.Status) ([]*job.Job, error) {
 	// Not needed for this test
 	return nil, nil
@@ -526,7 +535,7 @@ func TestGateway_HandleRequestJob_NoInput_EdgeCases(t *testing.T) {
 			JobID:        jobID,
 			CreatedAt:    time.Now(),
 			Status:       job.StatusPending,
-			InputBucket:  "",             // Empty
+			InputBucket:  "",            // Empty
 			InputKey:     "inputs/test", // Set - but should not generate InputDownload
 			OutputBucket: "output-bucket",
 			AttemptID:    1,
@@ -1050,6 +1059,9 @@ func TestGateway_HandleJobStatus_FAILED(t *testing.T) {
 
 	if updatedJob.Status != job.StatusFailed {
 		t.Errorf("Job status = %v, want %v", updatedJob.Status, job.StatusFailed)
+	}
+	if updatedJob.Message != failureMessage {
+		t.Errorf("Job message = %q, want %q", updatedJob.Message, failureMessage)
 	}
 }
 
