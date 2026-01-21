@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +40,10 @@ type Client struct {
 	stopChan          chan struct{}
 	requestJobChan    chan struct{} // Channel to trigger immediate job request
 	httpClient        *http.Client
+	inputCacheTTL     time.Duration
+	inputCacheDir     string
+	inputCacheMu      sync.Mutex
+	inputCache        map[string]cachedInput
 }
 
 // New creates a new agent client
@@ -56,6 +62,9 @@ func New(serverURL, agentID, agentToken string, maxConcurrency int) *Client {
 		stopChan:       make(chan struct{}),
 		requestJobChan: make(chan struct{}, 1), // Buffered channel for immediate triggers
 		httpClient:     &http.Client{Timeout: 5 * time.Minute},
+		inputCacheTTL:  10 * time.Minute,
+		inputCacheDir:  filepath.Join(os.TempDir(), "xiresource-input-cache"),
+		inputCache:     make(map[string]cachedInput),
 	}
 }
 
@@ -222,6 +231,13 @@ func (c *Client) SetRunningJobs(count int) {
 	c.runningJobsMu.Lock()
 	defer c.runningJobsMu.Unlock()
 	c.runningJobs = count
+}
+
+// SetInputCacheTTL sets the TTL for cached input files (0 disables caching).
+func (c *Client) SetInputCacheTTL(ttl time.Duration) {
+	c.inputCacheMu.Lock()
+	defer c.inputCacheMu.Unlock()
+	c.inputCacheTTL = ttl
 }
 
 // incrementRunningJobs increments running jobs counter (thread-safe)
@@ -396,7 +412,13 @@ func (c *Client) processJob(assigned *control.JobAssigned) {
 	outputKey := assigned.OutputKey
 
 	// Report RUNNING status
-	c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_RUNNING, fmt.Sprintf("Processing job"), "")
+	c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_RUNNING, "Processing job", "")
+
+	// Handle forward HTTP jobs
+	if assigned.JobType == control.JobTypeEnum_JOB_TYPE_FORWARD_HTTP {
+		c.processForwardJob(assigned)
+		return
+	}
 
 	// Check if command is provided
 	if assigned.Command == "" {
@@ -613,6 +635,93 @@ func (c *Client) downloadInputToFile(url, jobID, inputKey string) (string, error
 	return tmpFile, nil
 }
 
+type cachedInput struct {
+	path      string
+	expiresAt time.Time
+}
+
+func (c *Client) getCachedInputFile(url, inputKey string) (string, func(), error) {
+	c.inputCacheMu.Lock()
+	ttl := c.inputCacheTTL
+	c.inputCacheMu.Unlock()
+
+	if ttl <= 0 {
+		// Caching disabled: download to a temp file and clean up after use
+		tmpFile, err := c.downloadInputToFile(url, "forward", inputKey)
+		if err != nil {
+			return "", func() {}, err
+		}
+		return tmpFile, func() { _ = os.Remove(tmpFile) }, nil
+	}
+
+	now := time.Now()
+	c.inputCacheMu.Lock()
+	entry, ok := c.inputCache[url]
+	if ok && now.Before(entry.expiresAt) {
+		path := entry.path
+		c.inputCacheMu.Unlock()
+		return path, func() {}, nil
+	}
+	if ok {
+		delete(c.inputCache, url)
+		_ = os.Remove(entry.path)
+	}
+	c.inputCacheMu.Unlock()
+
+	cachePath, err := c.downloadInputToCacheFile(url, inputKey)
+	if err != nil {
+		return "", func() {}, err
+	}
+
+	c.inputCacheMu.Lock()
+	c.inputCache[url] = cachedInput{
+		path:      cachePath,
+		expiresAt: now.Add(ttl),
+	}
+	c.inputCacheMu.Unlock()
+
+	return cachePath, func() {}, nil
+}
+
+func (c *Client) downloadInputToCacheFile(url, inputKey string) (string, error) {
+	if err := os.MkdirAll(c.inputCacheDir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create cache dir: %w", err)
+	}
+
+	extension := ""
+	if inputKey != "" {
+		if ext := filepath.Ext(inputKey); ext != "" {
+			extension = ext
+		}
+	}
+
+	hash := sha256.Sum256([]byte(url))
+	cacheFile := filepath.Join(c.inputCacheDir, fmt.Sprintf("input_%x%s", hash, extension))
+
+	resp, err := c.httpClient.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("HTTP GET failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP GET returned status %d", resp.StatusCode)
+	}
+
+	f, err := os.Create(cacheFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to create cache file: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		_ = os.Remove(cacheFile)
+		return "", fmt.Errorf("failed to write cache file: %w", err)
+	}
+
+	return cacheFile, nil
+}
+
 // CommandResult contains the result of command execution
 type CommandResult struct {
 	OutputData    []byte // Output file content (if exists)
@@ -700,6 +809,189 @@ func (c *Client) executeCommand(command string, inputFile, outputFile string) (*
 	return result, nil
 }
 
+const maxForwardResponseSize = 10 * 1024 * 1024 // 10MB
+
+func (c *Client) processForwardJob(assigned *control.JobAssigned) {
+	jobID := assigned.JobId
+	attemptID := int(assigned.AttemptId)
+
+	forward := assigned.ForwardHttp
+	if forward == nil || strings.TrimSpace(forward.Url) == "" {
+		log.Printf("JobAssigned missing forward_http.url for job %s", jobID)
+		c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, "forward_http.url is required", "")
+		return
+	}
+
+	method := strings.ToUpper(strings.TrimSpace(forward.Method))
+	if method == "" {
+		method = http.MethodPost
+	}
+
+	inputURL, err := c.getPresignedURL(assigned.InputDownload, "input_download")
+	if err != nil {
+		log.Printf("Failed to resolve input URL for job %s: %v", jobID, err)
+		c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, err.Error(), "")
+		return
+	}
+	if assigned.InputKey == "" {
+		inputURL = ""
+	}
+
+	inputMode := assigned.InputForwardMode
+	if inputMode == control.InputForwardMode_INPUT_FORWARD_MODE_UNSPECIFIED {
+		inputMode = control.InputForwardMode_INPUT_FORWARD_MODE_URL
+	}
+
+	headers := make(http.Header)
+	for _, h := range forward.Headers {
+		if h.GetKey() == "" {
+			continue
+		}
+		headers.Add(h.GetKey(), h.GetValue())
+	}
+	headers.Set("X-Job-Id", jobID)
+	headers.Set("X-Attempt-Id", strconv.Itoa(attemptID))
+
+	var body io.Reader
+	if inputMode == control.InputForwardMode_INPUT_FORWARD_MODE_LOCAL_FILE && inputURL != "" {
+		filePath, cleanup, err := c.getCachedInputFile(inputURL, assigned.InputKey)
+		if err != nil {
+			log.Printf("Failed to get cached input for job %s: %v", jobID, err)
+			c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, fmt.Sprintf("Download failed: %v", err), "")
+			return
+		}
+		defer cleanup()
+
+		var buffer bytes.Buffer
+		writer := multipart.NewWriter(&buffer)
+
+		file, err := os.Open(filePath)
+		if err != nil {
+			c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, fmt.Sprintf("Open input failed: %v", err), "")
+			return
+		}
+		defer file.Close()
+
+		fileName := filepath.Base(filePath)
+		if assigned.InputKey != "" {
+			fileName = filepath.Base(assigned.InputKey)
+		}
+		part, err := writer.CreateFormFile("file", fileName)
+		if err != nil {
+			c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, fmt.Sprintf("Create form file failed: %v", err), "")
+			return
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, fmt.Sprintf("Write form file failed: %v", err), "")
+			return
+		}
+		if len(forward.Body) > 0 {
+			_ = writer.WriteField("payload", string(forward.Body))
+		}
+		if assigned.InputKey != "" {
+			_ = writer.WriteField("input_key", assigned.InputKey)
+		}
+		if inputURL != "" {
+			_ = writer.WriteField("input_url", inputURL)
+		}
+		if err := writer.Close(); err != nil {
+			c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, fmt.Sprintf("Finalize multipart failed: %v", err), "")
+			return
+		}
+
+		headers.Set("Content-Type", writer.FormDataContentType())
+		body = &buffer
+	} else {
+		bodyBytes := forward.Body
+		if len(bodyBytes) == 0 && inputURL != "" {
+			payload := map[string]string{
+				"input_url": inputURL,
+				"input_key": assigned.InputKey,
+			}
+			data, err := json.Marshal(payload)
+			if err != nil {
+				c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, fmt.Sprintf("Marshal payload failed: %v", err), "")
+				return
+			}
+			bodyBytes = data
+			if headers.Get("Content-Type") == "" {
+				headers.Set("Content-Type", "application/json")
+			}
+		}
+		if inputURL != "" {
+			headers.Set("X-Input-URL", inputURL)
+			if assigned.InputKey != "" {
+				headers.Set("X-Input-Key", assigned.InputKey)
+			}
+		}
+		body = bytes.NewReader(bodyBytes)
+	}
+
+	ctx := context.Background()
+	if forward.TimeoutSec > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(forward.TimeoutSec)*time.Second)
+		defer cancel()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, forward.Url, body)
+	if err != nil {
+		c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, fmt.Sprintf("Create request failed: %v", err), "")
+		return
+	}
+	for key, values := range headers {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, fmt.Sprintf("Forward request failed: %v", err), "")
+		return
+	}
+	defer resp.Body.Close()
+
+	respData, err := io.ReadAll(io.LimitReader(resp.Body, maxForwardResponseSize+1))
+	if err != nil {
+		c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, fmt.Sprintf("Read response failed: %v", err), "")
+		return
+	}
+	if len(respData) > maxForwardResponseSize {
+		c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, "Response body too large", "")
+		return
+	}
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		message := fmt.Sprintf("Forward HTTP returned status %d", resp.StatusCode)
+		if len(respData) > 0 {
+			message = fmt.Sprintf("%s: %s", message, truncateString(sanitizeUTF8(string(respData)), 2000))
+		}
+		c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, message, "")
+		return
+	}
+
+	outputKeyToReport := ""
+	if len(respData) > 0 && assigned.OutputUpload != nil {
+		outputURL, err := c.getPresignedURL(assigned.OutputUpload, "output_upload")
+		if err != nil {
+			c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, err.Error(), "")
+			return
+		}
+		if err := c.uploadOutput(outputURL, respData); err != nil {
+			c.reportJobStatus(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_FAILED, fmt.Sprintf("Upload failed: %v", err), "")
+			return
+		}
+		outputKeyToReport = assigned.OutputKey
+	}
+
+	stdout := ""
+	if len(respData) > 0 {
+		stdout = truncateString(sanitizeUTF8(string(respData)), 10000)
+	}
+	c.reportJobStatusWithOutput(jobID, attemptID, control.JobStatusEnum_JOB_STATUS_SUCCEEDED, "", outputKeyToReport, stdout, "")
+}
+
 // truncateString truncates a string to maxLen, appending "..." if truncated
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
@@ -755,6 +1047,20 @@ func (c *Client) uploadOutput(url string, data []byte) error {
 	}
 
 	return nil
+}
+
+func (c *Client) getPresignedURL(access *control.OSSAccess, label string) (string, error) {
+	if access == nil {
+		return "", nil
+	}
+	switch auth := access.Auth.(type) {
+	case *control.OSSAccess_PresignedUrl:
+		return auth.PresignedUrl, nil
+	case *control.OSSAccess_Sts:
+		return "", fmt.Errorf("%s STS not supported", label)
+	default:
+		return "", fmt.Errorf("invalid %s", label)
+	}
 }
 
 // reportJobStatus reports job status to the server (backward compatible)

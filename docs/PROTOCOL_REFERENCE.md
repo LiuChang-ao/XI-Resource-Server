@@ -165,7 +165,9 @@ message JobStatus {
   int32 attempt_id = 2;           // 尝试次数
   JobStatusEnum status = 3;       // 当前状态
   string message = 4;             // 可选: 状态消息或错误描述
-  string output_key = 5;          // 输出key (SUCCEEDED时必须提供)
+  string output_key = 5;          // 输出key (可选: 仅stdout时可为空)
+  string stdout = 6;              // 命令或本地服务响应(stdout)
+  string stderr = 7;              // 命令stderr（失败时常见）
 }
 ```
 
@@ -257,7 +259,44 @@ message JobAssigned {
   // 输出路径信息
   string output_prefix = 7;           // 输出key前缀 (例如: "jobs/{job_id}/{attempt_id}/")
   string output_key = 8;              // 特定输出key (使用presigned_url时必须设置)
-  string command = 9;                 // 要执行的命令 (例如: "python C:/scripts/analyze.py {input} {output}")
+  string command = 9;                 // COMMAND类型时要执行的命令
+  JobTypeEnum job_type = 11;          // 作业类型
+  ForwardHttpRequest forward_http = 12; // FORWARD_HTTP配置
+  InputForwardMode input_forward_mode = 13; // 输入转发方式
+}
+```
+
+**JobTypeEnum (作业类型)**:
+```protobuf
+enum JobTypeEnum {
+  JOB_TYPE_UNKNOWN = 0;
+  JOB_TYPE_COMMAND = 1;       // 执行命令
+  JOB_TYPE_FORWARD_HTTP = 2;  // 转发到本地HTTP服务
+}
+```
+
+**InputForwardMode (输入转发方式)**:
+```protobuf
+enum InputForwardMode {
+  INPUT_FORWARD_MODE_UNSPECIFIED = 0;
+  INPUT_FORWARD_MODE_URL = 1;        // 仅传URL给本地服务
+  INPUT_FORWARD_MODE_LOCAL_FILE = 2; // 下载文件并转发
+}
+```
+
+**ForwardHttpRequest (本地转发请求)**:
+```protobuf
+message Header {
+  string key = 1;
+  string value = 2;
+}
+
+message ForwardHttpRequest {
+  string url = 1;              // 本地服务URL
+  string method = 2;           // HTTP方法(默认POST)
+  repeated Header headers = 3; // 透传请求头
+  bytes body = 4;              // 原始body
+  int32 timeout_sec = 5;       // 超时(秒)
 }
 ```
 
@@ -287,7 +326,7 @@ message STSCreds {
 - 如果 `output_upload` 使用 `presigned_url`: `output_key` 必须设置
 - 如果 `output_upload` 使用 `sts`: `output_prefix` 必须设置
 
-**命令字段**:
+**命令字段（仅COMMAND）**:
 - `command`: 要执行的命令，支持占位符:
   - `{input}`: 输入文件路径（Agent下载后）- **完整文件系统路径**
   - `{output}`: 输出文件路径（Agent应写入此路径）- **完整文件系统路径**
@@ -303,20 +342,74 @@ message STSCreds {
 **Agent处理流程**:
 1. 接收 `JobAssigned` 消息
 2. 检查是否可以接受作业（未暂停且有容量）
-3. 从 `input_download` 获取presigned URL，下载输入文件到临时文件
-   - Agent会从 `input_key` 中提取文件扩展名（如果存在）
-   - 临时文件名格式: `job_{job_id}_input{.<ext>}`
-   - 例如: `input_key = "inputs/image.jpg"` → 临时文件 `job_xxx_input.jpg`
-4. 创建输出文件路径（临时文件）
-5. 执行 `command`，替换 `{input}` 和 `{output}` 占位符为实际文件路径
-6. 读取输出文件并上传到 `output_upload` 提供的presigned URL
-7. 清理临时文件
-8. 发送 `JobStatus` 报告结果
+3. 根据 `job_type` 分支：
+   - **COMMAND**:
+     1) 从 `input_download` 获取presigned URL，下载输入文件到临时文件  
+        - Agent会从 `input_key` 中提取文件扩展名（如果存在）
+        - 临时文件名格式: `job_{job_id}_input{.<ext>}`
+     2) 创建输出文件路径（临时文件）
+     3) 执行 `command`，替换 `{input}` 和 `{output}`
+     4) 读取输出文件并上传到 `output_upload`
+   - **FORWARD_HTTP**:
+     1) 组装HTTP请求（`forward_http`）
+     2) `input_forward_mode=URL`: 不下载输入，直接传URL给本地服务
+        - Header: `X-Input-URL`, `X-Input-Key`
+        - JSON body默认包含 `input_url` / `input_key`（当body为空）
+     3) `input_forward_mode=LOCAL_FILE`: 下载输入后以multipart上传
+        - 文件字段名: `file`
+        - 额外字段: `payload`(可选), `input_url`, `input_key`
+     4) 响应body作为输出数据；若有 `output_upload` 则上传
+4. 发送 `JobStatus` 报告结果
+
+**Agent与本地服务通讯示例**:
+
+**URL模式（input_forward_mode=URL）**:
+```
+POST /api/analyze HTTP/1.1
+Host: 127.0.0.1:8080
+Content-Type: application/json
+X-Job-Id: 550e8400-e29b-41d4-a716-446655440000
+X-Attempt-Id: 1
+X-Input-URL: https://oss.example.com/inputs/job-123/image.jpg?sign=...
+X-Input-Key: inputs/job-123/image.jpg
+
+{
+  "input_url": "https://oss.example.com/inputs/job-123/image.jpg?sign=...",
+  "input_key": "inputs/job-123/image.jpg"
+}
+```
+
+**本地文件模式（input_forward_mode=LOCAL_FILE）**:
+```
+POST /api/analyze HTTP/1.1
+Host: 127.0.0.1:8080
+Content-Type: multipart/form-data; boundary=----boundary
+X-Job-Id: 550e8400-e29b-41d4-a716-446655440000
+X-Attempt-Id: 1
+
+------boundary
+Content-Disposition: form-data; name="file"; filename="image.jpg"
+Content-Type: application/octet-stream
+
+<file-bytes>
+------boundary
+Content-Disposition: form-data; name="input_key"
+
+inputs/job-123/image.jpg
+------boundary
+Content-Disposition: form-data; name="input_url"
+
+https://oss.example.com/inputs/job-123/image.jpg?sign=...
+------boundary--
+```
+
+**本地服务响应**:
+- Agent将响应body作为输出数据；若存在 `output_upload`，会上传并在 `JobStatus` 中带上 `output_key`
 
 **脚本编写要求**:
 - 输入: 从 `{input}` 参数（文件路径）读取输入文件
 - 输出: 将结果写入 `{output}` 参数（文件路径）
-- 如果输出文件不存在，Agent会尝试使用命令的stdout作为输出（但不推荐）
+- 如果输出文件不存在，Agent会尝试使用命令的stdout作为输出
 
 ---
 
@@ -340,7 +433,7 @@ sequenceDiagram
     
     Note over Agent,Cloud: 3. 请求作业
     Agent->>Cloud: RequestJob
-    Cloud->>Agent: JobAssigned (包含presigned URLs和command)
+    Cloud->>Agent: JobAssigned (包含presigned URLs和job_type)
     
     Note over Agent,OSS: 4. 下载输入
     Agent->>OSS: GET (使用input_download presigned URL)
@@ -354,7 +447,7 @@ sequenceDiagram
     OSS->>Agent: 上传成功
     
     Note over Agent,Cloud: 7. 报告状态
-    Agent->>Cloud: JobStatus (SUCCEEDED, output_key)
+    Agent->>Cloud: JobStatus (SUCCEEDED, output_key可选)
 ```
 
 ---

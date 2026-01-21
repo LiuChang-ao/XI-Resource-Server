@@ -218,6 +218,47 @@ func TestJob_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "valid forward job",
+			job: &Job{
+				JobID:        "forward-job-1",
+				CreatedAt:    time.Now(),
+				Status:       StatusPending,
+				OutputBucket: "output-bucket",
+				OutputKey:    "output-key",
+				AttemptID:    1,
+				JobType:      JobTypeForwardHTTP,
+				ForwardURL:   "http://127.0.0.1:8080/api",
+				InputForward: InputForwardModeURL,
+			},
+			wantErr: false,
+		},
+		{
+			name: "forward job missing forward_url",
+			job: &Job{
+				JobID:        "forward-job-2",
+				CreatedAt:    time.Now(),
+				Status:       StatusPending,
+				OutputBucket: "output-bucket",
+				OutputKey:    "output-key",
+				AttemptID:    1,
+				JobType:      JobTypeForwardHTTP,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid job type",
+			job: &Job{
+				JobID:        "invalid-type-job",
+				CreatedAt:    time.Now(),
+				Status:       StatusPending,
+				OutputBucket: "output-bucket",
+				OutputKey:    "output-key",
+				AttemptID:    1,
+				JobType:      JobType("INVALID"),
+			},
+			wantErr: true,
+		},
+		{
 			name: "valid with output prefix",
 			job: &Job{
 				JobID:        "test-job-id",

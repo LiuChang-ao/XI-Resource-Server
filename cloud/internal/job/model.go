@@ -18,6 +18,22 @@ const (
 	StatusLost      Status = "LOST"
 )
 
+// JobType represents the execution type of a job
+type JobType string
+
+const (
+	JobTypeCommand     JobType = "COMMAND"
+	JobTypeForwardHTTP JobType = "FORWARD_HTTP"
+)
+
+// InputForwardMode controls how input is forwarded to local service
+type InputForwardMode string
+
+const (
+	InputForwardModeURL       InputForwardMode = "URL"
+	InputForwardModeLocalFile InputForwardMode = "LOCAL_FILE"
+)
+
 // IsValid checks if the status is valid
 func (s Status) IsValid() bool {
 	switch s {
@@ -52,22 +68,29 @@ func (s Status) IsTerminal() bool {
 
 // Job represents a compute job
 type Job struct {
-	JobID           string     `json:"job_id" db:"job_id"`
-	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
-	Status          Status     `json:"status" db:"status"`
-	InputBucket     string     `json:"input_bucket" db:"input_bucket"`
-	InputKey        string     `json:"input_key" db:"input_key"`
-	OutputBucket    string     `json:"output_bucket" db:"output_bucket"`
-	OutputKey       string     `json:"output_key" db:"output_key"`             // Can be empty if using prefix
-	OutputPrefix    string     `json:"output_prefix" db:"output_prefix"`       // Prefix for output (e.g., "jobs/{job_id}/{attempt_id}/")
-	OutputExtension string     `json:"output_extension" db:"output_extension"` // Output file extension (e.g., "json", "txt", "bin")
-	AttemptID       int        `json:"attempt_id" db:"attempt_id"`
-	AssignedAgentID string     `json:"assigned_agent_id" db:"assigned_agent_id"` // Optional, empty if not assigned
-	LeaseID         string     `json:"lease_id" db:"lease_id"`                   // Optional, for future lease mechanism
-	LeaseDeadline   *time.Time `json:"lease_deadline" db:"lease_deadline"`       // Optional, for future lease mechanism
-	Command         string     `json:"command" db:"command"`                     // Command to execute on agent
-	Stdout          string     `json:"stdout" db:"stdout"`                       // Command stdout output (truncated if too long)
-	Stderr          string     `json:"stderr" db:"stderr"`                       // Command stderr output (truncated if too long)
+	JobID           string           `json:"job_id" db:"job_id"`
+	CreatedAt       time.Time        `json:"created_at" db:"created_at"`
+	Status          Status           `json:"status" db:"status"`
+	InputBucket     string           `json:"input_bucket" db:"input_bucket"`
+	InputKey        string           `json:"input_key" db:"input_key"`
+	OutputBucket    string           `json:"output_bucket" db:"output_bucket"`
+	OutputKey       string           `json:"output_key" db:"output_key"`             // Can be empty if using prefix
+	OutputPrefix    string           `json:"output_prefix" db:"output_prefix"`       // Prefix for output (e.g., "jobs/{job_id}/{attempt_id}/")
+	OutputExtension string           `json:"output_extension" db:"output_extension"` // Output file extension (e.g., "json", "txt", "bin")
+	AttemptID       int              `json:"attempt_id" db:"attempt_id"`
+	AssignedAgentID string           `json:"assigned_agent_id" db:"assigned_agent_id"`   // Optional, empty if not assigned
+	LeaseID         string           `json:"lease_id" db:"lease_id"`                     // Optional, for future lease mechanism
+	LeaseDeadline   *time.Time       `json:"lease_deadline" db:"lease_deadline"`         // Optional, for future lease mechanism
+	Command         string           `json:"command" db:"command"`                       // Command to execute on agent
+	Stdout          string           `json:"stdout" db:"stdout"`                         // Command stdout output (truncated if too long)
+	Stderr          string           `json:"stderr" db:"stderr"`                         // Command stderr output (truncated if too long)
+	JobType         JobType          `json:"job_type" db:"job_type"`                     // Job execution type
+	ForwardURL      string           `json:"forward_url" db:"forward_url"`               // Local service URL for forward job
+	ForwardMethod   string           `json:"forward_method" db:"forward_method"`         // HTTP method for forward job
+	ForwardHeaders  string           `json:"forward_headers" db:"forward_headers"`       // JSON object of headers
+	ForwardBody     string           `json:"forward_body" db:"forward_body"`             // Raw body for forward job
+	ForwardTimeout  int              `json:"forward_timeout" db:"forward_timeout"`       // Timeout in seconds
+	InputForward    InputForwardMode `json:"input_forward_mode" db:"input_forward_mode"` // Input forwarding mode
 }
 
 // Validate validates the job fields
@@ -91,6 +114,22 @@ func (j *Job) Validate() error {
 	// This is now allowed - jobs can succeed with only stdout/stderr
 	if j.AttemptID < 1 {
 		return ErrInvalidAttemptID
+	}
+
+	// Default job type if empty
+	if j.JobType == "" {
+		j.JobType = JobTypeCommand
+	}
+	if j.JobType != JobTypeCommand && j.JobType != JobTypeForwardHTTP {
+		return ErrInvalidJobType
+	}
+	if j.JobType == JobTypeForwardHTTP {
+		if j.ForwardURL == "" {
+			return ErrInvalidForwardURL
+		}
+		if j.InputForward != "" && j.InputForward != InputForwardModeURL && j.InputForward != InputForwardModeLocalFile {
+			return ErrInvalidInputForwardMode
+		}
 	}
 	return nil
 }

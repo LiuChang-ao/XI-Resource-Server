@@ -694,3 +694,108 @@ func TestClient_ProcessJob_NoInput_404Error(t *testing.T) {
 	// In production, server should not send InputDownload if file doesn't exist,
 	// so this scenario should be rare. The test documents the current behavior.
 }
+
+func TestClient_ProcessForwardJob_URLMode_NoDownload(t *testing.T) {
+	var inputDownloadCalls int
+	inputServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		inputDownloadCalls++
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("should not be downloaded"))
+	}))
+	defer inputServer.Close()
+
+	var receivedInputURL string
+	var receivedBody []byte
+	localService := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedInputURL = r.Header.Get("X-Input-URL")
+		receivedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer localService.Close()
+
+	client := New("ws://test", "test-agent", "test-token", 1)
+	client.httpClient = &http.Client{Timeout: 5 * time.Second}
+
+	jobAssigned := &control.JobAssigned{
+		JobId:     "forward-job-url",
+		AttemptId: 1,
+		InputDownload: &control.OSSAccess{
+			Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: inputServer.URL},
+		},
+		InputKey:         "inputs/forward/input.txt",
+		JobType:          control.JobTypeEnum_JOB_TYPE_FORWARD_HTTP,
+		InputForwardMode: control.InputForwardMode_INPUT_FORWARD_MODE_URL,
+		ForwardHttp: &control.ForwardHttpRequest{
+			Url:    localService.URL,
+			Method: http.MethodPost,
+		},
+	}
+
+	client.processJob(jobAssigned)
+
+	if inputDownloadCalls != 0 {
+		t.Fatalf("Expected no input download calls, got %d", inputDownloadCalls)
+	}
+	if receivedInputURL != inputServer.URL {
+		t.Fatalf("Expected X-Input-URL to be %s, got %s", inputServer.URL, receivedInputURL)
+	}
+	if !bytes.Contains(receivedBody, []byte("input_url")) {
+		t.Fatalf("Expected JSON body to include input_url, got %s", string(receivedBody))
+	}
+}
+
+func TestClient_ProcessForwardJob_LocalFile_Cache(t *testing.T) {
+	var inputDownloadCalls int
+	inputData := []byte("cached input data")
+	inputServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		inputDownloadCalls++
+		w.WriteHeader(http.StatusOK)
+		w.Write(inputData)
+	}))
+	defer inputServer.Close()
+
+	var receivedFile []byte
+	localService := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(2 << 20); err != nil {
+			t.Fatalf("Failed to parse multipart: %v", err)
+		}
+		file, _, err := r.FormFile("file")
+		if err != nil {
+			t.Fatalf("Expected file field: %v", err)
+		}
+		defer file.Close()
+		receivedFile, _ = io.ReadAll(file)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer localService.Close()
+
+	client := New("ws://test", "test-agent", "test-token", 1)
+	client.httpClient = &http.Client{Timeout: 5 * time.Second}
+	client.SetInputCacheTTL(5 * time.Minute)
+
+	jobAssigned := &control.JobAssigned{
+		JobId:     "forward-job-file",
+		AttemptId: 1,
+		InputDownload: &control.OSSAccess{
+			Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: inputServer.URL},
+		},
+		InputKey:         "inputs/forward/input.txt",
+		JobType:          control.JobTypeEnum_JOB_TYPE_FORWARD_HTTP,
+		InputForwardMode: control.InputForwardMode_INPUT_FORWARD_MODE_LOCAL_FILE,
+		ForwardHttp: &control.ForwardHttpRequest{
+			Url:    localService.URL,
+			Method: http.MethodPost,
+			Body:   []byte("payload"),
+		},
+	}
+
+	client.processJob(jobAssigned)
+	client.processJob(jobAssigned)
+
+	if inputDownloadCalls != 1 {
+		t.Fatalf("Expected 1 input download call due to cache, got %d", inputDownloadCalls)
+	}
+	if !bytes.Equal(receivedFile, inputData) {
+		t.Fatalf("Expected forwarded file to match input data")
+	}
+}

@@ -52,6 +52,8 @@ go test -run TestClient_DownloadInputToFile_ExtensionPreservation ./agent/intern
 - `TestClient_ProcessJob_FullFlow`: 测试完整作业处理流程
 - `TestClient_ExecuteCommand_PlaceholderReplacement`: 测试命令占位符替换
 - `TestClient_HandleJobAssigned_Concurrency`: 测试并发控制
+- `TestClient_ProcessForwardJob_URLMode_NoDownload`: 测试转发URL模式不下载输入
+- `TestClient_ProcessForwardJob_LocalFile_Cache`: 测试转发本地文件模式与缓存
 
 **Cloud Gateway 测试 (`cloud/internal/gateway/`):**
 - `TestGateway_HandleRegister`: 测试Agent注册
@@ -68,6 +70,7 @@ go test -run TestClient_DownloadInputToFile_ExtensionPreservation ./agent/intern
 - `TestStore_Create`: 测试作业创建
 - `TestStore_UpdateStatus`: 测试状态更新
 - `TestStore_UpdateAssignment`: 测试作业分配
+- `TestJob_Validate`: 测试作业字段验证（包含转发作业）
 
 ### 2. 集成测试 (Integration Tests)
 
@@ -140,6 +143,54 @@ E2E测试会：
    - 检查Agent日志，确认临时文件名包含 `.jpg` 扩展名
    - 检查作业状态，确认作业成功完成
    - 验证Python脚本能够正确识别文件类型
+
+#### 测试本地服务转发（FORWARD_HTTP）
+
+1. **启动本地服务**（示例：监听 `http://127.0.0.1:8080/api/analyze`）  
+   本地服务需支持：
+   - URL模式：读取 `X-Input-URL` / `X-Input-Key` 或请求体中的 `input_url`/`input_key`
+   - LOCAL_FILE模式：接收 `multipart/form-data`，字段 `file`
+
+2. **启动Agent（可配置缓存TTL）**:
+   ```powershell
+   cd agent
+   go run cmd/agent/main.go -server ws://localhost:8080/wss -agent-id test-agent -agent-token dev-token -input-cache-ttl 10m
+   ```
+
+3. **创建URL模式作业**:
+   ```powershell
+   $body = @{
+       input_bucket = "your-bucket"
+       input_key = "inputs/test/image.jpg"
+       output_bucket = "your-bucket"
+       output_extension = "json"
+       job_type = "FORWARD_HTTP"
+       forward_url = "http://127.0.0.1:8080/api/analyze"
+       input_forward_mode = "URL"
+   } | ConvertTo-Json
+
+   Invoke-RestMethod -Uri "http://localhost:8080/api/jobs" -Method POST -Body $body -ContentType "application/json"
+   ```
+
+4. **创建本地文件模式作业**:
+   ```powershell
+   $body = @{
+       input_bucket = "your-bucket"
+       input_key = "inputs/test/image.jpg"
+       output_bucket = "your-bucket"
+       output_extension = "json"
+       job_type = "FORWARD_HTTP"
+       forward_url = "http://127.0.0.1:8080/api/analyze"
+       input_forward_mode = "LOCAL_FILE"
+   } | ConvertTo-Json
+
+   Invoke-RestMethod -Uri "http://localhost:8080/api/jobs" -Method POST -Body $body -ContentType "application/json"
+   ```
+
+5. **验证**:
+   - URL模式：本地服务收到 `X-Input-URL` 或 `input_url`
+   - LOCAL_FILE模式：本地服务收到 `multipart` 文件字段 `file`
+   - 作业状态为 `SUCCEEDED`，输出对象已上传
 
 ## 编写新测试
 

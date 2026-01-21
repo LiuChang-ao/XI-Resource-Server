@@ -13,10 +13,11 @@ import (
 
 func main() {
 	var (
-		serverURL    = flag.String("server", "ws://localhost:8080/wss", "Server WebSocket URL")
-		agentID      = flag.String("agent-id", "", "Agent ID (required)")
-		agentToken   = flag.String("agent-token", "dev-token", "Agent token (dev mode)")
+		serverURL      = flag.String("server", "ws://localhost:8080/wss", "Server WebSocket URL")
+		agentID        = flag.String("agent-id", "", "Agent ID (required)")
+		agentToken     = flag.String("agent-token", "dev-token", "Agent token (dev mode)")
 		maxConcurrency = flag.Int("max-concurrency", 1, "Maximum concurrent jobs")
+		inputCacheTTL  = flag.Duration("input-cache-ttl", 10*time.Minute, "Input cache TTL for forward jobs (0 to disable)")
 	)
 	flag.Parse()
 
@@ -26,6 +27,7 @@ func main() {
 
 	// Create client
 	cli := client.New(*serverURL, *agentID, *agentToken, *maxConcurrency)
+	cli.SetInputCacheTTL(*inputCacheTTL)
 
 	// Connect
 	if err := cli.Connect(); err != nil {

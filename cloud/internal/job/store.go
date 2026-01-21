@@ -81,6 +81,13 @@ func (s *SQLiteStore) initSchema() error {
 		lease_id TEXT,
 		lease_deadline DATETIME,
 		command TEXT,
+		job_type TEXT,
+		forward_url TEXT,
+		forward_method TEXT,
+		forward_headers TEXT,
+		forward_body TEXT,
+		forward_timeout INTEGER,
+		input_forward_mode TEXT,
 		stdout TEXT,
 		stderr TEXT,
 		CHECK (attempt_id >= 1),
@@ -104,6 +111,13 @@ func (s *SQLiteStore) initSchema() error {
 		"output_extension TEXT",
 		"stdout TEXT",
 		"stderr TEXT",
+		"job_type TEXT",
+		"forward_url TEXT",
+		"forward_method TEXT",
+		"forward_headers TEXT",
+		"forward_body TEXT",
+		"forward_timeout INTEGER",
+		"input_forward_mode TEXT",
 	}
 	for _, col := range newColumns {
 		_, err = s.db.Exec(`ALTER TABLE jobs ADD COLUMN ` + col)
@@ -129,8 +143,10 @@ func (s *SQLiteStore) Create(job *Job) error {
 	INSERT INTO jobs (
 		job_id, created_at, status, input_bucket, input_key,
 		output_bucket, output_key, output_prefix, output_extension, attempt_id,
-		assigned_agent_id, lease_id, lease_deadline, command, stdout, stderr
-	) VALUES (?, datetime(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		assigned_agent_id, lease_id, lease_deadline, command, job_type,
+		forward_url, forward_method, forward_headers, forward_body, forward_timeout, input_forward_mode,
+		stdout, stderr
+	) VALUES (?, datetime(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	// Format time for SQLite
@@ -156,6 +172,13 @@ func (s *SQLiteStore) Create(job *Job) error {
 		job.LeaseID,
 		leaseDeadlineStr,
 		job.Command,
+		job.JobType,
+		job.ForwardURL,
+		job.ForwardMethod,
+		job.ForwardHeaders,
+		job.ForwardBody,
+		job.ForwardTimeout,
+		job.InputForward,
 		job.Stdout,
 		job.Stderr,
 	)
@@ -173,7 +196,9 @@ func (s *SQLiteStore) Get(jobID string) (*Job, error) {
 	SELECT 
 		job_id, created_at, status, input_bucket, input_key,
 		output_bucket, output_key, output_prefix, output_extension, attempt_id,
-		assigned_agent_id, lease_id, lease_deadline, command, stdout, stderr
+		assigned_agent_id, lease_id, lease_deadline, command, job_type,
+		forward_url, forward_method, forward_headers, forward_body, forward_timeout, input_forward_mode,
+		stdout, stderr
 	FROM jobs
 	WHERE job_id = ?
 	`
@@ -183,6 +208,13 @@ func (s *SQLiteStore) Get(jobID string) (*Job, error) {
 	var statusStr string
 	var leaseDeadline sql.NullTime
 	var command sql.NullString
+	var jobType sql.NullString
+	var forwardURL sql.NullString
+	var forwardMethod sql.NullString
+	var forwardHeaders sql.NullString
+	var forwardBody sql.NullString
+	var forwardTimeout sql.NullInt64
+	var inputForward sql.NullString
 	var stdout sql.NullString
 	var stderr sql.NullString
 	var outputExtension sql.NullString
@@ -202,6 +234,13 @@ func (s *SQLiteStore) Get(jobID string) (*Job, error) {
 		&job.LeaseID,
 		&leaseDeadline,
 		&command,
+		&jobType,
+		&forwardURL,
+		&forwardMethod,
+		&forwardHeaders,
+		&forwardBody,
+		&forwardTimeout,
+		&inputForward,
 		&stdout,
 		&stderr,
 	)
@@ -236,6 +275,31 @@ func (s *SQLiteStore) Get(jobID string) (*Job, error) {
 		job.Command = command.String
 	} else {
 		job.Command = ""
+	}
+
+	if jobType.Valid {
+		job.JobType = JobType(jobType.String)
+	} else {
+		job.JobType = JobTypeCommand
+	}
+
+	if forwardURL.Valid {
+		job.ForwardURL = forwardURL.String
+	}
+	if forwardMethod.Valid {
+		job.ForwardMethod = forwardMethod.String
+	}
+	if forwardHeaders.Valid {
+		job.ForwardHeaders = forwardHeaders.String
+	}
+	if forwardBody.Valid {
+		job.ForwardBody = forwardBody.String
+	}
+	if forwardTimeout.Valid {
+		job.ForwardTimeout = int(forwardTimeout.Int64)
+	}
+	if inputForward.Valid {
+		job.InputForward = InputForwardMode(inputForward.String)
 	}
 
 	if outputExtension.Valid {
@@ -333,7 +397,9 @@ func (s *SQLiteStore) List(limit int, offset int, status *Status) ([]*Job, error
 	SELECT 
 		job_id, created_at, status, input_bucket, input_key,
 		output_bucket, output_key, output_prefix, output_extension, attempt_id,
-		assigned_agent_id, lease_id, lease_deadline, command, stdout, stderr
+		assigned_agent_id, lease_id, lease_deadline, command, job_type,
+		forward_url, forward_method, forward_headers, forward_body, forward_timeout, input_forward_mode,
+		stdout, stderr
 	FROM jobs
 	`
 	args := []interface{}{}
@@ -359,6 +425,13 @@ func (s *SQLiteStore) List(limit int, offset int, status *Status) ([]*Job, error
 		var statusStr string
 		var leaseDeadline sql.NullTime
 		var command sql.NullString
+		var jobType sql.NullString
+		var forwardURL sql.NullString
+		var forwardMethod sql.NullString
+		var forwardHeaders sql.NullString
+		var forwardBody sql.NullString
+		var forwardTimeout sql.NullInt64
+		var inputForward sql.NullString
 		var stdout sql.NullString
 		var stderr sql.NullString
 		var outputExtension sql.NullString
@@ -378,6 +451,13 @@ func (s *SQLiteStore) List(limit int, offset int, status *Status) ([]*Job, error
 			&job.LeaseID,
 			&leaseDeadline,
 			&command,
+			&jobType,
+			&forwardURL,
+			&forwardMethod,
+			&forwardHeaders,
+			&forwardBody,
+			&forwardTimeout,
+			&inputForward,
 			&stdout,
 			&stderr,
 		)
@@ -408,6 +488,30 @@ func (s *SQLiteStore) List(limit int, offset int, status *Status) ([]*Job, error
 			job.Command = command.String
 		} else {
 			job.Command = ""
+		}
+
+		if jobType.Valid {
+			job.JobType = JobType(jobType.String)
+		} else {
+			job.JobType = JobTypeCommand
+		}
+		if forwardURL.Valid {
+			job.ForwardURL = forwardURL.String
+		}
+		if forwardMethod.Valid {
+			job.ForwardMethod = forwardMethod.String
+		}
+		if forwardHeaders.Valid {
+			job.ForwardHeaders = forwardHeaders.String
+		}
+		if forwardBody.Valid {
+			job.ForwardBody = forwardBody.String
+		}
+		if forwardTimeout.Valid {
+			job.ForwardTimeout = int(forwardTimeout.Int64)
+		}
+		if inputForward.Valid {
+			job.InputForward = InputForwardMode(inputForward.String)
 		}
 
 		if outputExtension.Valid {
@@ -499,6 +603,13 @@ func (s *MySQLStore) initSchema() error {
 		lease_id VARCHAR(255),
 		lease_deadline DATETIME,
 		command VARCHAR(8192),
+		job_type VARCHAR(50),
+		forward_url VARCHAR(2048),
+		forward_method VARCHAR(20),
+		forward_headers TEXT,
+		forward_body LONGTEXT,
+		forward_timeout INT,
+		input_forward_mode VARCHAR(50),
 		stdout TEXT,
 		stderr TEXT,
 		CHECK (attempt_id >= 1),
@@ -520,6 +631,13 @@ func (s *MySQLStore) initSchema() error {
 		{"output_extension", "VARCHAR(50)"},
 		{"stdout", "TEXT"},
 		{"stderr", "TEXT"},
+		{"job_type", "VARCHAR(50)"},
+		{"forward_url", "VARCHAR(2048)"},
+		{"forward_method", "VARCHAR(20)"},
+		{"forward_headers", "TEXT"},
+		{"forward_body", "LONGTEXT"},
+		{"forward_timeout", "INT"},
+		{"input_forward_mode", "VARCHAR(50)"},
 	}
 	for _, col := range newColumns {
 		_, err := s.db.Exec(fmt.Sprintf("ALTER TABLE jobs ADD COLUMN %s %s", col.name, col.typ))
@@ -560,7 +678,7 @@ func (s *MySQLStore) initSchema() error {
 				strings.Contains(errStr, "already exists") ||
 				strings.Contains(errStr, "duplicate") ||
 				strings.Contains(errStr, "1061")
-			
+
 			if !isDuplicate {
 				// Only return error if it's not a duplicate key error
 				return fmt.Errorf("failed to create index %s: %w", idx.name, err)
@@ -585,8 +703,10 @@ func (s *MySQLStore) Create(job *Job) error {
 	INSERT INTO jobs (
 		job_id, created_at, status, input_bucket, input_key,
 		output_bucket, output_key, output_prefix, output_extension, attempt_id,
-		assigned_agent_id, lease_id, lease_deadline, command, stdout, stderr
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		assigned_agent_id, lease_id, lease_deadline, command, job_type,
+		forward_url, forward_method, forward_headers, forward_body, forward_timeout, input_forward_mode,
+		stdout, stderr
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := s.db.Exec(
@@ -605,6 +725,13 @@ func (s *MySQLStore) Create(job *Job) error {
 		job.LeaseID,
 		job.LeaseDeadline,
 		job.Command,
+		job.JobType,
+		job.ForwardURL,
+		job.ForwardMethod,
+		job.ForwardHeaders,
+		job.ForwardBody,
+		job.ForwardTimeout,
+		job.InputForward,
 		job.Stdout,
 		job.Stderr,
 	)
@@ -622,7 +749,9 @@ func (s *MySQLStore) Get(jobID string) (*Job, error) {
 	SELECT 
 		job_id, created_at, status, input_bucket, input_key,
 		output_bucket, output_key, output_prefix, output_extension, attempt_id,
-		assigned_agent_id, lease_id, lease_deadline, command, stdout, stderr
+		assigned_agent_id, lease_id, lease_deadline, command, job_type,
+		forward_url, forward_method, forward_headers, forward_body, forward_timeout, input_forward_mode,
+		stdout, stderr
 	FROM jobs
 	WHERE job_id = ?
 	`
@@ -631,6 +760,13 @@ func (s *MySQLStore) Get(jobID string) (*Job, error) {
 	var statusStr string
 	var leaseDeadline sql.NullTime
 	var command sql.NullString
+	var jobType sql.NullString
+	var forwardURL sql.NullString
+	var forwardMethod sql.NullString
+	var forwardHeaders sql.NullString
+	var forwardBody sql.NullString
+	var forwardTimeout sql.NullInt64
+	var inputForward sql.NullString
 	var stdout sql.NullString
 	var stderr sql.NullString
 	var outputExtension sql.NullString
@@ -650,6 +786,13 @@ func (s *MySQLStore) Get(jobID string) (*Job, error) {
 		&job.LeaseID,
 		&leaseDeadline,
 		&command,
+		&jobType,
+		&forwardURL,
+		&forwardMethod,
+		&forwardHeaders,
+		&forwardBody,
+		&forwardTimeout,
+		&inputForward,
 		&stdout,
 		&stderr,
 	)
@@ -674,6 +817,30 @@ func (s *MySQLStore) Get(jobID string) (*Job, error) {
 		job.Command = command.String
 	} else {
 		job.Command = ""
+	}
+
+	if jobType.Valid {
+		job.JobType = JobType(jobType.String)
+	} else {
+		job.JobType = JobTypeCommand
+	}
+	if forwardURL.Valid {
+		job.ForwardURL = forwardURL.String
+	}
+	if forwardMethod.Valid {
+		job.ForwardMethod = forwardMethod.String
+	}
+	if forwardHeaders.Valid {
+		job.ForwardHeaders = forwardHeaders.String
+	}
+	if forwardBody.Valid {
+		job.ForwardBody = forwardBody.String
+	}
+	if forwardTimeout.Valid {
+		job.ForwardTimeout = int(forwardTimeout.Int64)
+	}
+	if inputForward.Valid {
+		job.InputForward = InputForwardMode(inputForward.String)
 	}
 
 	if outputExtension.Valid {
@@ -771,7 +938,9 @@ func (s *MySQLStore) List(limit int, offset int, status *Status) ([]*Job, error)
 	SELECT 
 		job_id, created_at, status, input_bucket, input_key,
 		output_bucket, output_key, output_prefix, output_extension, attempt_id,
-		assigned_agent_id, lease_id, lease_deadline, command, stdout, stderr
+		assigned_agent_id, lease_id, lease_deadline, command, job_type,
+		forward_url, forward_method, forward_headers, forward_body, forward_timeout, input_forward_mode,
+		stdout, stderr
 	FROM jobs
 	`
 	args := []interface{}{}
@@ -796,6 +965,13 @@ func (s *MySQLStore) List(limit int, offset int, status *Status) ([]*Job, error)
 		var statusStr string
 		var leaseDeadline sql.NullTime
 		var command sql.NullString
+		var jobType sql.NullString
+		var forwardURL sql.NullString
+		var forwardMethod sql.NullString
+		var forwardHeaders sql.NullString
+		var forwardBody sql.NullString
+		var forwardTimeout sql.NullInt64
+		var inputForward sql.NullString
 		var stdout sql.NullString
 		var stderr sql.NullString
 		var outputExtension sql.NullString
@@ -815,6 +991,13 @@ func (s *MySQLStore) List(limit int, offset int, status *Status) ([]*Job, error)
 			&job.LeaseID,
 			&leaseDeadline,
 			&command,
+			&jobType,
+			&forwardURL,
+			&forwardMethod,
+			&forwardHeaders,
+			&forwardBody,
+			&forwardTimeout,
+			&inputForward,
 			&stdout,
 			&stderr,
 		)
@@ -835,6 +1018,30 @@ func (s *MySQLStore) List(limit int, offset int, status *Status) ([]*Job, error)
 			job.Command = command.String
 		} else {
 			job.Command = ""
+		}
+
+		if jobType.Valid {
+			job.JobType = JobType(jobType.String)
+		} else {
+			job.JobType = JobTypeCommand
+		}
+		if forwardURL.Valid {
+			job.ForwardURL = forwardURL.String
+		}
+		if forwardMethod.Valid {
+			job.ForwardMethod = forwardMethod.String
+		}
+		if forwardHeaders.Valid {
+			job.ForwardHeaders = forwardHeaders.String
+		}
+		if forwardBody.Valid {
+			job.ForwardBody = forwardBody.String
+		}
+		if forwardTimeout.Valid {
+			job.ForwardTimeout = int(forwardTimeout.Int64)
+		}
+		if inputForward.Valid {
+			job.InputForward = InputForwardMode(inputForward.String)
 		}
 
 		if outputExtension.Valid {

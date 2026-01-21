@@ -88,14 +88,21 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 
 // CreateJobRequest represents the request body for creating a job
 type CreateJobRequest struct {
-	InputBucket     string `json:"input_bucket"`
-	InputKey        string `json:"input_key"`
-	OutputBucket    string `json:"output_bucket"`
-	OutputKey       string `json:"output_key,omitempty"`       // Optional: specific output key
-	OutputPrefix    string `json:"output_prefix,omitempty"`    // Optional: output prefix (defaults to jobs/{job_id}/{attempt_id}/)
-	OutputExtension string `json:"output_extension,omitempty"` // Optional: output file extension (e.g., "json", "txt", "bin", default: "bin")
-	AttemptID       int    `json:"attempt_id,omitempty"`       // Optional: defaults to 1
-	Command         string `json:"command,omitempty"`          // Optional: command to execute (e.g., "python C:/scripts/analyze.py {input} {output}")
+	InputBucket       string            `json:"input_bucket"`
+	InputKey          string            `json:"input_key"`
+	OutputBucket      string            `json:"output_bucket"`
+	OutputKey         string            `json:"output_key,omitempty"`          // Optional: specific output key
+	OutputPrefix      string            `json:"output_prefix,omitempty"`       // Optional: output prefix (defaults to jobs/{job_id}/{attempt_id}/)
+	OutputExtension   string            `json:"output_extension,omitempty"`    // Optional: output file extension (e.g., "json", "txt", "bin", default: "bin")
+	AttemptID         int               `json:"attempt_id,omitempty"`          // Optional: defaults to 1
+	Command           string            `json:"command,omitempty"`             // Optional: command to execute (e.g., "python C:/scripts/analyze.py {input} {output}")
+	JobType           string            `json:"job_type,omitempty"`            // Optional: COMMAND or FORWARD_HTTP
+	ForwardURL        string            `json:"forward_url,omitempty"`         // Optional: local service URL for forward jobs
+	ForwardMethod     string            `json:"forward_method,omitempty"`      // Optional: HTTP method for forward jobs
+	ForwardHeaders    map[string]string `json:"forward_headers,omitempty"`     // Optional: headers for forward jobs
+	ForwardBody       string            `json:"forward_body,omitempty"`        // Optional: raw body for forward jobs
+	ForwardTimeoutSec int               `json:"forward_timeout_sec,omitempty"` // Optional: timeout for forward jobs (seconds)
+	InputForwardMode  string            `json:"input_forward_mode,omitempty"`  // Optional: URL or LOCAL_FILE
 }
 
 // CreateJobResponse represents the response for creating a job
@@ -183,6 +190,29 @@ func (h *Handler) HandleCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Normalize and validate job type
+	jobType := strings.ToUpper(strings.TrimSpace(req.JobType))
+	if jobType == "" {
+		jobType = string(job.JobTypeCommand)
+	}
+	if jobType != string(job.JobTypeCommand) && jobType != string(job.JobTypeForwardHTTP) {
+		http.Error(w, "job_type must be COMMAND or FORWARD_HTTP", http.StatusBadRequest)
+		return
+	}
+
+	// Validate forward job fields
+	inputForwardMode := strings.ToUpper(strings.TrimSpace(req.InputForwardMode))
+	if inputForwardMode != "" && inputForwardMode != string(job.InputForwardModeURL) && inputForwardMode != string(job.InputForwardModeLocalFile) {
+		http.Error(w, "input_forward_mode must be URL or LOCAL_FILE", http.StatusBadRequest)
+		return
+	}
+	if jobType == string(job.JobTypeForwardHTTP) {
+		if strings.TrimSpace(req.ForwardURL) == "" {
+			http.Error(w, "forward_url is required for FORWARD_HTTP job_type", http.StatusBadRequest)
+			return
+		}
+	}
+
 	// Set default output extension if not provided
 	outputExtension := req.OutputExtension
 	if outputExtension == "" {
@@ -194,6 +224,16 @@ func (h *Handler) HandleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create job
+	forwardHeadersJSON := ""
+	if len(req.ForwardHeaders) > 0 {
+		headersData, err := json.Marshal(req.ForwardHeaders)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Invalid forward_headers: %v", err), http.StatusBadRequest)
+			return
+		}
+		forwardHeadersJSON = string(headersData)
+	}
+
 	newJob := &job.Job{
 		JobID:           jobID,
 		CreatedAt:       time.Now(),
@@ -211,6 +251,13 @@ func (h *Handler) HandleCreateJob(w http.ResponseWriter, r *http.Request) {
 		Command:         req.Command,
 		Stdout:          "",
 		Stderr:          "",
+		JobType:         job.JobType(jobType),
+		ForwardURL:      strings.TrimSpace(req.ForwardURL),
+		ForwardMethod:   strings.TrimSpace(req.ForwardMethod),
+		ForwardHeaders:  forwardHeadersJSON,
+		ForwardBody:     req.ForwardBody,
+		ForwardTimeout:  req.ForwardTimeoutSec,
+		InputForward:    job.InputForwardMode(inputForwardMode),
 	}
 
 	// Ensure output prefix follows pattern

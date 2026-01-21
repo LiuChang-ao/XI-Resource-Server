@@ -114,7 +114,16 @@ Content-Type: application/json
   "output_prefix": "optional-output-prefix/",
   "output_extension": "json",
   "attempt_id": 1,
-  "command": "python C:/scripts/analyze.py {input} {output}"
+  "command": "python C:/scripts/analyze.py {input} {output}",
+  "job_type": "COMMAND",
+  "forward_url": "http://127.0.0.1:8080/api",
+  "forward_method": "POST",
+  "forward_headers": {
+    "X-App-Token": "local-token"
+  },
+  "forward_body": "{\"mode\":\"fast\"}",
+  "forward_timeout_sec": 60,
+  "input_forward_mode": "URL"
 }
 ```
 
@@ -130,8 +139,20 @@ Content-Type: application/json
   - `{input}`: 输入文件路径（Agent下载后）
   - `{output}`: 输出文件路径（Agent应写入此路径）
   - 示例: `"python C:/scripts/analyze.py {input} {output}"`
-  - 最大长度: 1024字符
-  - **注意**: 如果命令不产生输出文件，可以只使用stdout，此时`output_key`可以为空
+  - 最大长度: 8192字符
+  - **注意**: 仅 `job_type=COMMAND` 时使用
+- `job_type` (可选): 作业类型，默认 `COMMAND`。可选值：
+  - `COMMAND`: 执行命令
+  - `FORWARD_HTTP`: 转发请求到Agent所在机器的本地HTTP服务
+- `forward_url` (可选): `FORWARD_HTTP` 时必填，本地服务URL
+- `forward_method` (可选): `FORWARD_HTTP` 时使用的HTTP方法（默认 `POST`）
+- `forward_headers` (可选): `FORWARD_HTTP` 时附加的HTTP请求头（透传给本地服务）
+  - 示例中的 `X-App-Token` 仅为示例自定义头，可用于本地服务认证/鉴权
+- `forward_body` (可选): `FORWARD_HTTP` 时的请求体（原样透传）
+- `forward_timeout_sec` (可选): `FORWARD_HTTP` 时的请求超时（秒）
+- `input_forward_mode` (可选): 输入文件转发方式（默认 `URL`）
+  - `URL`: Agent不下载输入，只把presigned URL传给本地服务
+  - `LOCAL_FILE`: Agent下载输入并以multipart上传给本地服务（字段名 `file`）
 
 **安全限制**:
 - 请求体大小限制: 1MB
@@ -144,6 +165,36 @@ Content-Type: application/json
   "job_id": "550e8400-e29b-41d4-a716-446655440000",
   "status": "PENDING",
   "created_at": "2026-01-12T10:30:45Z"
+}
+```
+
+**示例：转发到本地服务（URL模式）**
+```json
+{
+  "input_bucket": "my-bucket",
+  "input_key": "inputs/job-123/image.jpg",
+  "output_bucket": "my-bucket",
+  "output_extension": "json",
+  "job_type": "FORWARD_HTTP",
+  "forward_url": "http://127.0.0.1:8080/api/analyze",
+  "forward_method": "POST",
+  "input_forward_mode": "URL"
+}
+```
+
+**示例：转发到本地服务（本地文件模式）**
+```json
+{
+  "input_bucket": "my-bucket",
+  "input_key": "inputs/job-123/image.jpg",
+  "output_bucket": "my-bucket",
+  "output_extension": "json",
+  "job_type": "FORWARD_HTTP",
+  "forward_url": "http://127.0.0.1:8080/api/analyze",
+  "input_forward_mode": "LOCAL_FILE",
+  "forward_headers": {
+    "X-App-Token": "local-token"
+  }
 }
 ```
 
@@ -187,6 +238,13 @@ GET /api/jobs/{job_id}
   "lease_id": "lease-uuid",
   "lease_deadline": null,
   "command": "python C:/scripts/analyze.py {input} {output}",
+  "job_type": "COMMAND",
+  "forward_url": "",
+  "forward_method": "",
+  "forward_headers": "",
+  "forward_body": "",
+  "forward_timeout": 0,
+  "input_forward_mode": "",
   "stdout": "Analysis completed. Output written to: C:\\...\\output.json",
   "stderr": ""
 }
@@ -194,6 +252,9 @@ GET /api/jobs/{job_id}
 
 **字段说明**:
 - `output_extension`: 输出文件扩展名（例如: `"json"`, `"txt"`, `"bin"`）
+- `job_type`: 作业类型（`COMMAND`/`FORWARD_HTTP`）
+- `forward_url`/`forward_method`/`forward_headers`/`forward_body`/`forward_timeout`: 转发作业配置
+- `input_forward_mode`: 输入转发方式（`URL`/`LOCAL_FILE`）
 - `stdout`: 命令执行的stdout输出（截断到10KB，如果为空则字段为空字符串）
 - `stderr`: 命令执行的stderr输出（截断到10KB，通常在FAILED状态时包含错误信息）
 - `output_key`: 如果命令没有产生输出文件（仅stdout），此字段可能为空字符串

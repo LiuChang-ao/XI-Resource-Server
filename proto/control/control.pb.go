@@ -83,6 +83,106 @@ func (JobStatusEnum) EnumDescriptor() ([]byte, []int) {
 	return file_control_proto_rawDescGZIP(), []int{0}
 }
 
+// JobTypeEnum: Job execution type
+type JobTypeEnum int32
+
+const (
+	JobTypeEnum_JOB_TYPE_UNKNOWN      JobTypeEnum = 0
+	JobTypeEnum_JOB_TYPE_COMMAND      JobTypeEnum = 1 // Execute command on agent
+	JobTypeEnum_JOB_TYPE_FORWARD_HTTP JobTypeEnum = 2 // Forward request to local HTTP service on agent
+)
+
+// Enum value maps for JobTypeEnum.
+var (
+	JobTypeEnum_name = map[int32]string{
+		0: "JOB_TYPE_UNKNOWN",
+		1: "JOB_TYPE_COMMAND",
+		2: "JOB_TYPE_FORWARD_HTTP",
+	}
+	JobTypeEnum_value = map[string]int32{
+		"JOB_TYPE_UNKNOWN":      0,
+		"JOB_TYPE_COMMAND":      1,
+		"JOB_TYPE_FORWARD_HTTP": 2,
+	}
+)
+
+func (x JobTypeEnum) Enum() *JobTypeEnum {
+	p := new(JobTypeEnum)
+	*p = x
+	return p
+}
+
+func (x JobTypeEnum) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (JobTypeEnum) Descriptor() protoreflect.EnumDescriptor {
+	return file_control_proto_enumTypes[1].Descriptor()
+}
+
+func (JobTypeEnum) Type() protoreflect.EnumType {
+	return &file_control_proto_enumTypes[1]
+}
+
+func (x JobTypeEnum) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use JobTypeEnum.Descriptor instead.
+func (JobTypeEnum) EnumDescriptor() ([]byte, []int) {
+	return file_control_proto_rawDescGZIP(), []int{1}
+}
+
+// InputForwardMode: how input file is forwarded to local service
+type InputForwardMode int32
+
+const (
+	InputForwardMode_INPUT_FORWARD_MODE_UNSPECIFIED InputForwardMode = 0
+	InputForwardMode_INPUT_FORWARD_MODE_URL         InputForwardMode = 1 // Provide presigned URL to local service
+	InputForwardMode_INPUT_FORWARD_MODE_LOCAL_FILE  InputForwardMode = 2 // Download and send file to local service
+)
+
+// Enum value maps for InputForwardMode.
+var (
+	InputForwardMode_name = map[int32]string{
+		0: "INPUT_FORWARD_MODE_UNSPECIFIED",
+		1: "INPUT_FORWARD_MODE_URL",
+		2: "INPUT_FORWARD_MODE_LOCAL_FILE",
+	}
+	InputForwardMode_value = map[string]int32{
+		"INPUT_FORWARD_MODE_UNSPECIFIED": 0,
+		"INPUT_FORWARD_MODE_URL":         1,
+		"INPUT_FORWARD_MODE_LOCAL_FILE":  2,
+	}
+)
+
+func (x InputForwardMode) Enum() *InputForwardMode {
+	p := new(InputForwardMode)
+	*p = x
+	return p
+}
+
+func (x InputForwardMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (InputForwardMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_control_proto_enumTypes[2].Descriptor()
+}
+
+func (InputForwardMode) Type() protoreflect.EnumType {
+	return &file_control_proto_enumTypes[2]
+}
+
+func (x InputForwardMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use InputForwardMode.Descriptor instead.
+func (InputForwardMode) EnumDescriptor() ([]byte, []int) {
+	return file_control_proto_rawDescGZIP(), []int{2}
+}
+
 // Envelope wraps all messages for forward compatibility
 type Envelope struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -511,6 +611,136 @@ func (x *HeartbeatAck) GetSuccess() bool {
 	return false
 }
 
+// Header: HTTP header key/value
+type Header struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Header) Reset() {
+	*x = Header{}
+	mi := &file_control_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Header) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Header) ProtoMessage() {}
+
+func (x *Header) ProtoReflect() protoreflect.Message {
+	mi := &file_control_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Header.ProtoReflect.Descriptor instead.
+func (*Header) Descriptor() ([]byte, []int) {
+	return file_control_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *Header) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *Header) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+// ForwardHttpRequest: forward request to local service
+type ForwardHttpRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Url           string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`                                  // Local service URL (e.g., http://127.0.0.1:8080/api)
+	Method        string                 `protobuf:"bytes,2,opt,name=method,proto3" json:"method,omitempty"`                            // HTTP method (default POST)
+	Headers       []*Header              `protobuf:"bytes,3,rep,name=headers,proto3" json:"headers,omitempty"`                          // Optional headers to pass through
+	Body          []byte                 `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`                                // Optional raw body (UTF-8 or binary)
+	TimeoutSec    int32                  `protobuf:"varint,5,opt,name=timeout_sec,json=timeoutSec,proto3" json:"timeout_sec,omitempty"` // Optional request timeout (seconds)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForwardHttpRequest) Reset() {
+	*x = ForwardHttpRequest{}
+	mi := &file_control_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForwardHttpRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForwardHttpRequest) ProtoMessage() {}
+
+func (x *ForwardHttpRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_control_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForwardHttpRequest.ProtoReflect.Descriptor instead.
+func (*ForwardHttpRequest) Descriptor() ([]byte, []int) {
+	return file_control_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ForwardHttpRequest) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *ForwardHttpRequest) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *ForwardHttpRequest) GetHeaders() []*Header {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *ForwardHttpRequest) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+func (x *ForwardHttpRequest) GetTimeoutSec() int32 {
+	if x != nil {
+		return x.TimeoutSec
+	}
+	return 0
+}
+
 // STSCreds: STS temporary credentials for OSS access
 type STSCreds struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -526,7 +756,7 @@ type STSCreds struct {
 
 func (x *STSCreds) Reset() {
 	*x = STSCreds{}
-	mi := &file_control_proto_msgTypes[5]
+	mi := &file_control_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -538,7 +768,7 @@ func (x *STSCreds) String() string {
 func (*STSCreds) ProtoMessage() {}
 
 func (x *STSCreds) ProtoReflect() protoreflect.Message {
-	mi := &file_control_proto_msgTypes[5]
+	mi := &file_control_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -551,7 +781,7 @@ func (x *STSCreds) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use STSCreds.ProtoReflect.Descriptor instead.
 func (*STSCreds) Descriptor() ([]byte, []int) {
-	return file_control_proto_rawDescGZIP(), []int{5}
+	return file_control_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *STSCreds) GetAccessKeyId() string {
@@ -611,7 +841,7 @@ type OSSAccess struct {
 
 func (x *OSSAccess) Reset() {
 	*x = OSSAccess{}
-	mi := &file_control_proto_msgTypes[6]
+	mi := &file_control_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -623,7 +853,7 @@ func (x *OSSAccess) String() string {
 func (*OSSAccess) ProtoMessage() {}
 
 func (x *OSSAccess) ProtoReflect() protoreflect.Message {
-	mi := &file_control_proto_msgTypes[6]
+	mi := &file_control_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -636,7 +866,7 @@ func (x *OSSAccess) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OSSAccess.ProtoReflect.Descriptor instead.
 func (*OSSAccess) Descriptor() ([]byte, []int) {
-	return file_control_proto_rawDescGZIP(), []int{6}
+	return file_control_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *OSSAccess) GetAuth() isOSSAccess_Auth {
@@ -693,7 +923,7 @@ type RequestJob struct {
 
 func (x *RequestJob) Reset() {
 	*x = RequestJob{}
-	mi := &file_control_proto_msgTypes[7]
+	mi := &file_control_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -705,7 +935,7 @@ func (x *RequestJob) String() string {
 func (*RequestJob) ProtoMessage() {}
 
 func (x *RequestJob) ProtoReflect() protoreflect.Message {
-	mi := &file_control_proto_msgTypes[7]
+	mi := &file_control_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -718,7 +948,7 @@ func (x *RequestJob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestJob.ProtoReflect.Descriptor instead.
 func (*RequestJob) Descriptor() ([]byte, []int) {
-	return file_control_proto_rawDescGZIP(), []int{7}
+	return file_control_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RequestJob) GetAgentId() string {
@@ -759,16 +989,19 @@ type JobAssigned struct {
 	// - If output_upload uses presigned_url: output_key MUST be set, and presigned_url must target that exact key.
 	// - If output_upload uses STS: output_prefix MUST be set, agent may write any key under this prefix.
 	// Server must reject job assignment if these rules are violated.
-	OutputPrefix  string `protobuf:"bytes,7,opt,name=output_prefix,json=outputPrefix,proto3" json:"output_prefix,omitempty"` // Output key prefix (e.g., "jobs/{job_id}/{attempt_id}/") - required if using STS
-	OutputKey     string `protobuf:"bytes,8,opt,name=output_key,json=outputKey,proto3" json:"output_key,omitempty"`          // Specific output key - required if using presigned_url
-	Command       string `protobuf:"bytes,9,opt,name=command,proto3" json:"command,omitempty"`                               // Command to execute (e.g., "python C:/scripts/analyze.py {input} {output}")
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	OutputPrefix     string              `protobuf:"bytes,7,opt,name=output_prefix,json=outputPrefix,proto3" json:"output_prefix,omitempty"`                                               // Output key prefix (e.g., "jobs/{job_id}/{attempt_id}/") - required if using STS
+	OutputKey        string              `protobuf:"bytes,8,opt,name=output_key,json=outputKey,proto3" json:"output_key,omitempty"`                                                        // Specific output key - required if using presigned_url
+	Command          string              `protobuf:"bytes,9,opt,name=command,proto3" json:"command,omitempty"`                                                                             // Command to execute (e.g., "python C:/scripts/analyze.py {input} {output}")
+	JobType          JobTypeEnum         `protobuf:"varint,11,opt,name=job_type,json=jobType,proto3,enum=control.JobTypeEnum" json:"job_type,omitempty"`                                   // Job type (default: COMMAND)
+	ForwardHttp      *ForwardHttpRequest `protobuf:"bytes,12,opt,name=forward_http,json=forwardHttp,proto3" json:"forward_http,omitempty"`                                                 // Forward HTTP request configuration
+	InputForwardMode InputForwardMode    `protobuf:"varint,13,opt,name=input_forward_mode,json=inputForwardMode,proto3,enum=control.InputForwardMode" json:"input_forward_mode,omitempty"` // Input forwarding mode for forward jobs
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *JobAssigned) Reset() {
 	*x = JobAssigned{}
-	mi := &file_control_proto_msgTypes[8]
+	mi := &file_control_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -780,7 +1013,7 @@ func (x *JobAssigned) String() string {
 func (*JobAssigned) ProtoMessage() {}
 
 func (x *JobAssigned) ProtoReflect() protoreflect.Message {
-	mi := &file_control_proto_msgTypes[8]
+	mi := &file_control_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -793,7 +1026,7 @@ func (x *JobAssigned) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobAssigned.ProtoReflect.Descriptor instead.
 func (*JobAssigned) Descriptor() ([]byte, []int) {
-	return file_control_proto_rawDescGZIP(), []int{8}
+	return file_control_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *JobAssigned) GetJobId() string {
@@ -866,6 +1099,27 @@ func (x *JobAssigned) GetCommand() string {
 	return ""
 }
 
+func (x *JobAssigned) GetJobType() JobTypeEnum {
+	if x != nil {
+		return x.JobType
+	}
+	return JobTypeEnum_JOB_TYPE_UNKNOWN
+}
+
+func (x *JobAssigned) GetForwardHttp() *ForwardHttpRequest {
+	if x != nil {
+		return x.ForwardHttp
+	}
+	return nil
+}
+
+func (x *JobAssigned) GetInputForwardMode() InputForwardMode {
+	if x != nil {
+		return x.InputForwardMode
+	}
+	return InputForwardMode_INPUT_FORWARD_MODE_UNSPECIFIED
+}
+
 // JobStatus: Agent reports job execution status
 type JobStatus struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -882,7 +1136,7 @@ type JobStatus struct {
 
 func (x *JobStatus) Reset() {
 	*x = JobStatus{}
-	mi := &file_control_proto_msgTypes[9]
+	mi := &file_control_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -894,7 +1148,7 @@ func (x *JobStatus) String() string {
 func (*JobStatus) ProtoMessage() {}
 
 func (x *JobStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_control_proto_msgTypes[9]
+	mi := &file_control_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -907,7 +1161,7 @@ func (x *JobStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobStatus.ProtoReflect.Descriptor instead.
 func (*JobStatus) Descriptor() ([]byte, []int) {
-	return file_control_proto_rawDescGZIP(), []int{9}
+	return file_control_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *JobStatus) GetJobId() string {
@@ -995,7 +1249,17 @@ const file_control_proto_rawDesc = "" +
 	"\x06paused\x18\x02 \x01(\bR\x06paused\x12!\n" +
 	"\frunning_jobs\x18\x03 \x01(\x05R\vrunningJobs\"(\n" +
 	"\fHeartbeatAck\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\"\xd9\x01\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"0\n" +
+	"\x06Header\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"\x9e\x01\n" +
+	"\x12ForwardHttpRequest\x12\x10\n" +
+	"\x03url\x18\x01 \x01(\tR\x03url\x12\x16\n" +
+	"\x06method\x18\x02 \x01(\tR\x06method\x12)\n" +
+	"\aheaders\x18\x03 \x03(\v2\x0f.control.HeaderR\aheaders\x12\x12\n" +
+	"\x04body\x18\x04 \x01(\fR\x04body\x12\x1f\n" +
+	"\vtimeout_sec\x18\x05 \x01(\x05R\n" +
+	"timeoutSec\"\xd9\x01\n" +
 	"\bSTSCreds\x12\"\n" +
 	"\raccess_key_id\x18\x01 \x01(\tR\vaccessKeyId\x12*\n" +
 	"\x11access_key_secret\x18\x02 \x01(\tR\x0faccessKeySecret\x12%\n" +
@@ -1011,7 +1275,7 @@ const file_control_proto_rawDesc = "" +
 	"RequestJob\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\"\n" +
 	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\x12'\n" +
-	"\x0fmax_concurrency\x18\x03 \x01(\x05R\x0emaxConcurrency\"\xf1\x02\n" +
+	"\x0fmax_concurrency\x18\x03 \x01(\x05R\x0emaxConcurrency\"\xab\x04\n" +
 	"\vJobAssigned\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x1d\n" +
 	"\n" +
@@ -1025,7 +1289,10 @@ const file_control_proto_rawDesc = "" +
 	"\routput_prefix\x18\a \x01(\tR\foutputPrefix\x12\x1d\n" +
 	"\n" +
 	"output_key\x18\b \x01(\tR\toutputKey\x12\x18\n" +
-	"\acommand\x18\t \x01(\tR\acommand\"\xda\x01\n" +
+	"\acommand\x18\t \x01(\tR\acommand\x12/\n" +
+	"\bjob_type\x18\v \x01(\x0e2\x14.control.JobTypeEnumR\ajobType\x12>\n" +
+	"\fforward_http\x18\f \x01(\v2\x1b.control.ForwardHttpRequestR\vforwardHttp\x12G\n" +
+	"\x12input_forward_mode\x18\r \x01(\x0e2\x19.control.InputForwardModeR\x10inputForwardMode\"\xda\x01\n" +
 	"\tJobStatus\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x1d\n" +
 	"\n" +
@@ -1043,7 +1310,15 @@ const file_control_proto_rawDesc = "" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x03\x12\x15\n" +
 	"\x11JOB_STATUS_FAILED\x10\x04\x12\x17\n" +
 	"\x13JOB_STATUS_CANCELED\x10\x05\x12\x13\n" +
-	"\x0fJOB_STATUS_LOST\x10\x06B-Z+github.com/xiresource/proto/control;controlb\x06proto3"
+	"\x0fJOB_STATUS_LOST\x10\x06*T\n" +
+	"\vJobTypeEnum\x12\x14\n" +
+	"\x10JOB_TYPE_UNKNOWN\x10\x00\x12\x14\n" +
+	"\x10JOB_TYPE_COMMAND\x10\x01\x12\x19\n" +
+	"\x15JOB_TYPE_FORWARD_HTTP\x10\x02*u\n" +
+	"\x10InputForwardMode\x12\"\n" +
+	"\x1eINPUT_FORWARD_MODE_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16INPUT_FORWARD_MODE_URL\x10\x01\x12!\n" +
+	"\x1dINPUT_FORWARD_MODE_LOCAL_FILE\x10\x02B-Z+github.com/xiresource/proto/control;controlb\x06proto3"
 
 var (
 	file_control_proto_rawDescOnce sync.Once
@@ -1057,38 +1332,46 @@ func file_control_proto_rawDescGZIP() []byte {
 	return file_control_proto_rawDescData
 }
 
-var file_control_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_control_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_control_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_control_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_control_proto_goTypes = []any{
-	(JobStatusEnum)(0),   // 0: control.JobStatusEnum
-	(*Envelope)(nil),     // 1: control.Envelope
-	(*Register)(nil),     // 2: control.Register
-	(*RegisterAck)(nil),  // 3: control.RegisterAck
-	(*Heartbeat)(nil),    // 4: control.Heartbeat
-	(*HeartbeatAck)(nil), // 5: control.HeartbeatAck
-	(*STSCreds)(nil),     // 6: control.STSCreds
-	(*OSSAccess)(nil),    // 7: control.OSSAccess
-	(*RequestJob)(nil),   // 8: control.RequestJob
-	(*JobAssigned)(nil),  // 9: control.JobAssigned
-	(*JobStatus)(nil),    // 10: control.JobStatus
+	(JobStatusEnum)(0),         // 0: control.JobStatusEnum
+	(JobTypeEnum)(0),           // 1: control.JobTypeEnum
+	(InputForwardMode)(0),      // 2: control.InputForwardMode
+	(*Envelope)(nil),           // 3: control.Envelope
+	(*Register)(nil),           // 4: control.Register
+	(*RegisterAck)(nil),        // 5: control.RegisterAck
+	(*Heartbeat)(nil),          // 6: control.Heartbeat
+	(*HeartbeatAck)(nil),       // 7: control.HeartbeatAck
+	(*Header)(nil),             // 8: control.Header
+	(*ForwardHttpRequest)(nil), // 9: control.ForwardHttpRequest
+	(*STSCreds)(nil),           // 10: control.STSCreds
+	(*OSSAccess)(nil),          // 11: control.OSSAccess
+	(*RequestJob)(nil),         // 12: control.RequestJob
+	(*JobAssigned)(nil),        // 13: control.JobAssigned
+	(*JobStatus)(nil),          // 14: control.JobStatus
 }
 var file_control_proto_depIdxs = []int32{
-	2,  // 0: control.Envelope.register:type_name -> control.Register
-	4,  // 1: control.Envelope.heartbeat:type_name -> control.Heartbeat
-	3,  // 2: control.Envelope.register_ack:type_name -> control.RegisterAck
-	5,  // 3: control.Envelope.heartbeat_ack:type_name -> control.HeartbeatAck
-	8,  // 4: control.Envelope.request_job:type_name -> control.RequestJob
-	9,  // 5: control.Envelope.job_assigned:type_name -> control.JobAssigned
-	10, // 6: control.Envelope.job_status:type_name -> control.JobStatus
-	6,  // 7: control.OSSAccess.sts:type_name -> control.STSCreds
-	7,  // 8: control.JobAssigned.input_download:type_name -> control.OSSAccess
-	7,  // 9: control.JobAssigned.output_upload:type_name -> control.OSSAccess
-	0,  // 10: control.JobStatus.status:type_name -> control.JobStatusEnum
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	4,  // 0: control.Envelope.register:type_name -> control.Register
+	6,  // 1: control.Envelope.heartbeat:type_name -> control.Heartbeat
+	5,  // 2: control.Envelope.register_ack:type_name -> control.RegisterAck
+	7,  // 3: control.Envelope.heartbeat_ack:type_name -> control.HeartbeatAck
+	12, // 4: control.Envelope.request_job:type_name -> control.RequestJob
+	13, // 5: control.Envelope.job_assigned:type_name -> control.JobAssigned
+	14, // 6: control.Envelope.job_status:type_name -> control.JobStatus
+	8,  // 7: control.ForwardHttpRequest.headers:type_name -> control.Header
+	10, // 8: control.OSSAccess.sts:type_name -> control.STSCreds
+	11, // 9: control.JobAssigned.input_download:type_name -> control.OSSAccess
+	11, // 10: control.JobAssigned.output_upload:type_name -> control.OSSAccess
+	1,  // 11: control.JobAssigned.job_type:type_name -> control.JobTypeEnum
+	9,  // 12: control.JobAssigned.forward_http:type_name -> control.ForwardHttpRequest
+	2,  // 13: control.JobAssigned.input_forward_mode:type_name -> control.InputForwardMode
+	0,  // 14: control.JobStatus.status:type_name -> control.JobStatusEnum
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_control_proto_init() }
@@ -1105,7 +1388,7 @@ func file_control_proto_init() {
 		(*Envelope_JobAssigned)(nil),
 		(*Envelope_JobStatus)(nil),
 	}
-	file_control_proto_msgTypes[6].OneofWrappers = []any{
+	file_control_proto_msgTypes[8].OneofWrappers = []any{
 		(*OSSAccess_PresignedUrl)(nil),
 		(*OSSAccess_Sts)(nil),
 	}
@@ -1114,8 +1397,8 @@ func file_control_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_control_proto_rawDesc), len(file_control_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   10,
+			NumEnums:      3,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

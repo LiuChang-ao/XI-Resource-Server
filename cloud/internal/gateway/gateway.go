@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"github.com/xiresource/cloud/internal/job"
 	"github.com/xiresource/cloud/internal/oss"
 	"github.com/xiresource/cloud/internal/queue"
@@ -343,7 +344,7 @@ func (g *Gateway) handleRequestJob(agentConn *AgentConnection, envelope *control
 	// This ensures we never generate URLs for jobs without input
 	var inputDownloadURL string
 	var inputAccess *control.OSSAccess
-	
+
 	// Only generate input download URL if BOTH fields are non-empty
 	hasInput := j.InputBucket != "" && j.InputKey != ""
 	if hasInput {
@@ -408,16 +409,29 @@ func (g *Gateway) handleRequestJob(agentConn *AgentConnection, envelope *control
 
 	// Create JobAssigned message
 	jobAssignedMsg := &control.JobAssigned{
-		JobId:        jobID,
-		AttemptId:    int32(attemptID),
-		LeaseId:      leaseID,
-		LeaseTtlSec:  leaseTTLSec,
-		OutputUpload: &control.OSSAccess{Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: outputUploadURL}},
-		OutputPrefix: outputPrefix,
-		OutputKey:    outputKey,
-		Command:      j.Command,
+		JobId:            jobID,
+		AttemptId:        int32(attemptID),
+		LeaseId:          leaseID,
+		LeaseTtlSec:      leaseTTLSec,
+		OutputUpload:     &control.OSSAccess{Auth: &control.OSSAccess_PresignedUrl{PresignedUrl: outputUploadURL}},
+		OutputPrefix:     outputPrefix,
+		OutputKey:        outputKey,
+		Command:          j.Command,
+		JobType:          mapJobTypeToProto(j.JobType),
+		InputForwardMode: mapInputForwardModeToProto(j.InputForward),
 	}
-	
+
+	if j.JobType == job.JobTypeForwardHTTP {
+		jobAssignedMsg.Command = ""
+		jobAssignedMsg.ForwardHttp = &control.ForwardHttpRequest{
+			Url:        j.ForwardURL,
+			Method:     j.ForwardMethod,
+			Headers:    parseForwardHeaders(j.ForwardHeaders),
+			Body:       []byte(j.ForwardBody),
+			TimeoutSec: int32(j.ForwardTimeout),
+		}
+	}
+
 	// Only include input fields if input is provided
 	// Double-check InputKey is not empty to prevent agent from trying to download empty input
 	if inputAccess != nil && j.InputKey != "" {
@@ -519,7 +533,7 @@ func (g *Gateway) handleJobStatus(agentConn *AgentConnection, envelope *control.
 				// Continue anyway
 			}
 		}
-		
+
 		if err := g.jobStore.UpdateStatus(jobID, job.StatusRunning); err != nil {
 			log.Printf("Failed to update job %s to RUNNING: %v", jobID, err)
 			return
@@ -529,7 +543,7 @@ func (g *Gateway) handleJobStatus(agentConn *AgentConnection, envelope *control.
 	case job.StatusSucceeded:
 		// SUCCEEDED: output_key is optional (may be empty if command doesn't produce output file)
 		outputKey := status.OutputKey
-		
+
 		// Save stdout and stderr
 		stdout := status.Stdout
 		stderr := status.Stderr
@@ -593,7 +607,7 @@ func (g *Gateway) handleJobStatus(agentConn *AgentConnection, envelope *control.
 	case job.StatusFailed:
 		// Update to FAILED
 		message := status.Message
-		
+
 		// Save stdout and stderr (especially stderr for failed jobs)
 		stdout := status.Stdout
 		stderr := status.Stderr
@@ -601,7 +615,7 @@ func (g *Gateway) handleJobStatus(agentConn *AgentConnection, envelope *control.
 			log.Printf("Failed to update stdout/stderr for job %s: %v", jobID, err)
 			// Continue anyway - stdout/stderr update failure shouldn't fail the status update
 		}
-		
+
 		if message != "" {
 			log.Printf("Job %s (attempt %d) FAILED on agent %s: %s", jobID, attemptID, agentID, message)
 		} else {
@@ -671,6 +685,47 @@ func jobStatusFromProto(status control.JobStatusEnum) job.Status {
 		// Default to current job status or PENDING if unknown
 		return job.StatusPending
 	}
+}
+
+func mapJobTypeToProto(jobType job.JobType) control.JobTypeEnum {
+	switch jobType {
+	case job.JobTypeForwardHTTP:
+		return control.JobTypeEnum_JOB_TYPE_FORWARD_HTTP
+	case job.JobTypeCommand:
+		fallthrough
+	default:
+		return control.JobTypeEnum_JOB_TYPE_COMMAND
+	}
+}
+
+func mapInputForwardModeToProto(mode job.InputForwardMode) control.InputForwardMode {
+	switch mode {
+	case job.InputForwardModeLocalFile:
+		return control.InputForwardMode_INPUT_FORWARD_MODE_LOCAL_FILE
+	case job.InputForwardModeURL:
+		return control.InputForwardMode_INPUT_FORWARD_MODE_URL
+	default:
+		return control.InputForwardMode_INPUT_FORWARD_MODE_UNSPECIFIED
+	}
+}
+
+func parseForwardHeaders(headersJSON string) []*control.Header {
+	if headersJSON == "" {
+		return nil
+	}
+	var headers map[string]string
+	if err := json.Unmarshal([]byte(headersJSON), &headers); err != nil {
+		log.Printf("Warning: invalid forward_headers JSON: %v", err)
+		return nil
+	}
+	result := make([]*control.Header, 0, len(headers))
+	for key, value := range headers {
+		if key == "" {
+			continue
+		}
+		result = append(result, &control.Header{Key: key, Value: value})
+	}
+	return result
 }
 
 // SendMessage sends a message to an agent

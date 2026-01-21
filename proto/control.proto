@@ -64,6 +64,35 @@ enum JobStatusEnum {
   JOB_STATUS_LOST = 6;        // Job lost due to agent disconnect/lease expiry (M2+)
 }
 
+// JobTypeEnum: Job execution type
+enum JobTypeEnum {
+  JOB_TYPE_UNKNOWN = 0;
+  JOB_TYPE_COMMAND = 1;       // Execute command on agent
+  JOB_TYPE_FORWARD_HTTP = 2;  // Forward request to local HTTP service on agent
+}
+
+// InputForwardMode: how input file is forwarded to local service
+enum InputForwardMode {
+  INPUT_FORWARD_MODE_UNSPECIFIED = 0;
+  INPUT_FORWARD_MODE_URL = 1;        // Provide presigned URL to local service
+  INPUT_FORWARD_MODE_LOCAL_FILE = 2; // Download and send file to local service
+}
+
+// Header: HTTP header key/value
+message Header {
+  string key = 1;
+  string value = 2;
+}
+
+// ForwardHttpRequest: forward request to local service
+message ForwardHttpRequest {
+  string url = 1;              // Local service URL (e.g., http://127.0.0.1:8080/api)
+  string method = 2;           // HTTP method (default POST)
+  repeated Header headers = 3; // Optional headers to pass through
+  bytes body = 4;              // Optional raw body (UTF-8 or binary)
+  int32 timeout_sec = 5;       // Optional request timeout (seconds)
+}
+
 // STSCreds: STS temporary credentials for OSS access
 message STSCreds {
   string access_key_id = 1;
@@ -113,6 +142,9 @@ message JobAssigned {
   string output_prefix = 7;           // Output key prefix (e.g., "jobs/{job_id}/{attempt_id}/") - required if using STS
   string output_key = 8;              // Specific output key - required if using presigned_url
   string command = 9;                 // Command to execute (e.g., "python C:/scripts/analyze.py {input} {output}")
+  JobTypeEnum job_type = 11;          // Job type (default: COMMAND)
+  ForwardHttpRequest forward_http = 12; // Forward HTTP request configuration
+  InputForwardMode input_forward_mode = 13; // Input forwarding mode for forward jobs
 }
 
 // JobStatus: Agent reports job execution status
