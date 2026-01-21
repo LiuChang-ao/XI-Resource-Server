@@ -33,6 +33,7 @@ type Client struct {
 	hostname          string
 	maxConcurrency    int
 	conn              *websocket.Conn
+	writeMu           sync.Mutex
 	heartbeatInterval time.Duration
 	paused            bool
 	runningJobs       int
@@ -124,7 +125,7 @@ func (c *Client) sendRegister() error {
 		return err
 	}
 
-	return c.conn.WriteMessage(websocket.BinaryMessage, data)
+	return c.writeMessage(data)
 }
 
 func (c *Client) sendHeartbeat() error {
@@ -136,7 +137,7 @@ func (c *Client) sendHeartbeat() error {
 			Heartbeat: &control.Heartbeat{
 				AgentId:     c.agentID,
 				Paused:      c.paused,
-				RunningJobs: int32(c.runningJobs),
+				RunningJobs: int32(c.getRunningJobs()),
 			},
 		},
 	}
@@ -146,7 +147,7 @@ func (c *Client) sendHeartbeat() error {
 		return err
 	}
 
-	return c.conn.WriteMessage(websocket.BinaryMessage, data)
+	return c.writeMessage(data)
 }
 
 func (c *Client) readLoop() {
@@ -362,7 +363,7 @@ func (c *Client) sendRequestJob() error {
 		return fmt.Errorf("failed to marshal RequestJob: %w", err)
 	}
 
-	return c.conn.WriteMessage(websocket.BinaryMessage, data)
+	return c.writeMessage(data)
 }
 
 // handleJobAssigned processes a JobAssigned message
@@ -1101,14 +1102,23 @@ func (c *Client) reportJobStatusWithOutput(jobID string, attemptID int, status c
 		return
 	}
 
-	if c.conn != nil {
-		if err := c.conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-			log.Printf("Failed to send JobStatus: %v", err)
-			return
-		}
-		log.Printf("Reported job %s (attempt %d) status: %v", jobID, attemptID, status)
-	} else {
+	if c.conn == nil {
 		// In tests, conn might be nil
 		log.Printf("Would report job %s (attempt %d) status: %v (conn is nil)", jobID, attemptID, status)
+		return
 	}
+	if err := c.writeMessage(data); err != nil {
+		log.Printf("Failed to send JobStatus: %v", err)
+		return
+	}
+	log.Printf("Reported job %s (attempt %d) status: %v", jobID, attemptID, status)
+}
+
+func (c *Client) writeMessage(data []byte) error {
+	if c.conn == nil {
+		return fmt.Errorf("websocket connection is nil")
+	}
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return c.conn.WriteMessage(websocket.BinaryMessage, data)
 }

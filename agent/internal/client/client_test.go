@@ -11,9 +11,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	control "github.com/xiresource/proto/control"
 )
 
@@ -798,4 +800,61 @@ func TestClient_ProcessForwardJob_LocalFile_Cache(t *testing.T) {
 	if !bytes.Equal(receivedFile, inputData) {
 		t.Fatalf("Expected forwarded file to match input data")
 	}
+}
+
+func TestClient_WebSocketConcurrentWrites_NoPanic(t *testing.T) {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("Upgrade failed: %v", err)
+			return
+		}
+		defer conn.Close()
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	dialer := websocket.Dialer{}
+	conn, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	client := New("ws://test", "test-agent", "test-token", 1)
+	client.conn = conn
+
+	const workers = 8
+	const iterations = 50
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(worker int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				switch (worker + j) % 3 {
+				case 0:
+					if err := client.sendHeartbeat(); err != nil {
+						t.Errorf("sendHeartbeat failed: %v", err)
+					}
+				case 1:
+					if err := client.sendRequestJob(); err != nil {
+						t.Errorf("sendRequestJob failed: %v", err)
+					}
+				default:
+					client.reportJobStatus("job-concurrent", 1, control.JobStatusEnum_JOB_STATUS_RUNNING, "ok", "")
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
 }
